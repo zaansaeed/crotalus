@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "crotalus"
+dynamic = ["version"]
+description = "Real-time supply-chain monitoring for PyPI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{name = "Zaan Saeed", email = "zaan.saeed3406@gmail.com"}]
+keywords = ["security", "supply-chain", "pypi", "malware-detection"]
+
+
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[project.urls]
+Homepage = "https://github.com/zaansaeed/crotalus"
+Repository = "https://github.com/zaansaeed/crotalus"
+
+[tool.hatch.version]
+path = "src/crotalus/__init__.py"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+strict = true
+files = ["src"]
