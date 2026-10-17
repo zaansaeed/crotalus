@@ -13,7 +13,9 @@ authors = [{name = "Zaan Saeed", email = "zaan.saeed3406@gmail.com"}]
 keywords = ["security", "supply-chain", "pypi", "malware-detection"]
 
 
-dependencies = []
+dependencies = [
+    "feedparser>=6.0",
+]
 
 [project.optional-dependencies]
 dev = [

@@ -1,10 +1,24 @@
+"""Ingest new PyPI releases from the RSS feed.
+
+PyPI publishes its most recent uploads at ``https://pypi.org/rss/updates.xml``.
+This module fetches that feed (``poll``) and turns each item into a ``FeedEntry``
+(``parse_feed``) with a PEP 503 normalized name, version, and UTC publish time.
+Malformed items are skipped rather than failing the whole batch.
+
+It is the first stage of crotalus: the feed is polled frequently so newly
+published releases can be queued for analysis within minutes of upload.
+Releases the feed misses are covered elsewhere by on-demand lookups against
+the PyPI JSON API.
+"""
+
 from __future__ import annotations
 
 import re
-import feedparser
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
+
+import feedparser
 
 if TYPE_CHECKING:
     from feedparser import FeedParserDict
