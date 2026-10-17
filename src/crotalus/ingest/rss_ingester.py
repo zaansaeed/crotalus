@@ -1,8 +1,8 @@
 """Ingest new PyPI releases from the RSS feed.
 
-PyPI publishes its most recent uploads at ``https://pypi.org/rss/updates.xml``.
-This module fetches that feed (``poll``) and turns each item into a ``FeedEntry``
-(``parse_feed``) with a PEP 503 normalized name, version, and UTC publish time.
+PyPI publishes its most recent uploads at `https://pypi.org/rss/updates.xml`.
+This module fetches that feed (`poll`) and turns each item into a `FeedEntry`
+(`parse_feed`) with a PEP 503 normalized name, version, and UTC publish time.
 Malformed items are skipped rather than failing the whole batch.
 
 It is the first stage of crotalus: the feed is polled frequently so newly
