@@ -38,3 +38,7 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.mypy]
 strict = true
 files = ["src"]
+
+[[tool.mypy.overrides]]
+module = "feedparser" #has no default type checking
+ignore_missing_imports = true 

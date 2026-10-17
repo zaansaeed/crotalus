@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>PyPI recent updates</title>
+    <link>https://pypi.org/</link>
+    <description>Recent updates to the Python Package Index</description>
+    <language>en</language>
+    <!-- valid -->
+    <item>
+      <title>requests 2.31.0</title>
+      <link>https://pypi.org/project/requests/2.31.0/</link>
+      <description>Python HTTP for Humans.</description>
+      <pubDate>Sat, 17 Oct 2026 04:33:56 GMT</pubDate>
+    </item>
+    <!-- valid, name needs PEP 503 normalization -->
+    <item>
+      <title>X5_Browser.Tools 1.6.0</title>
+      <link>https://pypi.org/project/x5-browser-tools/1.6.0/</link>
+      <description>Mixed-case name with separators</description>
+      <pubDate>Sat, 17 Oct 2026 04:33:08 GMT</pubDate>
+    </item>
+    <!-- malformed: no pubDate -->
+    <item>
+      <title>nodate 1.0</title>
+      <link>https://pypi.org/project/nodate/1.0/</link>
+      <description>Missing pubDate</description>
+    </item>
+    <!-- malformed: no version in title -->
+    <item>
+      <title>noversion</title>
+      <link>https://pypi.org/project/noversion/</link>
+      <description>Title has one part</description>
+      <pubDate>Sat, 17 Oct 2026 04:30:00 GMT</pubDate>
+    </item>
+    <!-- malformed: extra token in title -->
+    <item>
+      <title>extra 1.0 junk</title>
+      <link>https://pypi.org/project/extra/1.0/</link>
+      <description>Title has three parts</description>
+      <pubDate>Sat, 17 Oct 2026 04:29:00 GMT</pubDate>
+    </item>
+    <!-- malformed: no title -->
+    <item>
+      <link>https://pypi.org/project/notitle/1.0/</link>
+      <description>Missing title</description>
+      <pubDate>Sat, 17 Oct 2026 04:28:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>
