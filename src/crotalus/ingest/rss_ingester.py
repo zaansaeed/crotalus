@@ -7,8 +7,6 @@ Malformed items are skipped rather than failing the whole batch.
 
 It is the first stage of crotalus: the feed is polled frequently so newly
 published releases can be queued for analysis within minutes of upload.
-Releases the feed misses are covered elsewhere by on-demand lookups against
-the PyPI JSON API.
 """
 
 from __future__ import annotations
