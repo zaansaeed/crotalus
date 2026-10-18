@@ -4,7 +4,7 @@ from pathlib import Path
 import feedparser
 import pytest
 
-from crotalus.ingest.rss_ingester import FeedEntry, normalize_name, parse_feed
+from crotalus.ingest.rss_ingestor import FeedEntry, normalize_name, parse_feed
 
 FIXTURE = Path(__file__).parent / "fixtures" / "updates.xml"
 
