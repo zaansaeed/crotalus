@@ -1,0 +1,26 @@
+# Local development services for crotalus.
+# Start:  docker compose up -d
+# Stop:   docker compose down        (keeps data)
+# Wipe:   docker compose down -v     (deletes the database volume)
+
+services: #each service is a container this project needs
+  db:
+    image: postgres:16 # pinned major version
+    container_name: crotalus-pg
+    environment:
+      POSTGRES_USER: crotalus
+      POSTGRES_PASSWORD: crotalus
+      POSTGRES_DB: crotalus
+    ports:
+      - "127.0.0.1:5432:5432" # host:container, so localhost:5432 on the Mac reaches Postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data # keep data when the container is removed
+    healthcheck:
+      # "healthy" once Postgres accepts connections, not merely when the process starts
+      test: ["CMD-SHELL", "pg_isready -U crotalus -d crotalus"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes: #decleration of one volume we use, so data is not lost w/ container
+  pgdata:
