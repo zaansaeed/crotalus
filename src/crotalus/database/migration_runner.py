@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,12 +11,9 @@ from crotalus.database.connect_db import connect
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "migrations"
 
 
-
-
-
 def create_tracking_table(connection: psycopg.Connection[TupleRow]) -> None:
     """
-    Create the table to track which migrations have been applied to the DB 
+    Create the table to track which migrations have been applied to the DB
     if it has not been created yet.
     """
     connection.execute("""
@@ -26,6 +22,7 @@ def create_tracking_table(connection: psycopg.Connection[TupleRow]) -> None:
         applied_at timestamptz NOT NULL DEFAULT now() 
     )
     """)
+
 
 def get_applied(connection: psycopg.Connection[TupleRow]) -> set[str]:
     """
@@ -37,6 +34,7 @@ def get_applied(connection: psycopg.Connection[TupleRow]) -> set[str]:
     """)
     return {name[0] for name in res}
 
+
 def find_migrations() -> list[Path]:
     """
     Get the migration files in the migrations folder, in the order they must run.
@@ -44,13 +42,23 @@ def find_migrations() -> list[Path]:
     return sorted(MIGRATIONS_DIR.glob("*.sql"))
 
 
-def apply_migration(connection: psycopg.Connection[TupleRow], path: Path):
+def apply_migration(connection: psycopg.Connection[TupleRow], path: Path) -> None:
     """
     Apply one single migration to the database, and update the tracking table.
     """
-        
-        
 
+    sql_text = path.read_text()
+
+    # One transaction: the migration and its record succeed or fail together.
+    with connection.transaction():
+        # run the migration
+        connection.execute(sql_text)
+
+        # record the migration, by name (e.g. "001_packages_releases")
+        connection.execute(
+            "INSERT INTO applied_schema_migrations (name) VALUES (%s)",
+            (path.stem,),
+        )
 
 
 def main():
