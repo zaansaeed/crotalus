@@ -8,7 +8,8 @@ from crotalus.database import migration_runner
 
 Conn = psycopg.Connection[TupleRow]
 
-#db fixture in conftest
+# db fixture in conftest
+
 
 def add_package(db: Conn, name: str) -> int:
     row = db.execute("INSERT INTO packages (name) VALUES (%s) RETURNING id", (name,)).fetchone()

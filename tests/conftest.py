@@ -22,7 +22,7 @@ from crotalus.database.connect_db import connect
 TEST_DB_NAME = "crotalus_test"
 
 
-@pytest.fixture(scope="session") #only ran once. tests use the same instance
+@pytest.fixture(scope="session")  # only ran once. tests use the same instance
 def test_database_url() -> Iterator[str]:
     """Create a fresh, migrated crotalus_test database once per test session."""
     load_dotenv()
@@ -53,7 +53,8 @@ def test_database_url() -> Iterator[str]:
 
 @pytest.fixture
 def db(
-    test_database_url: str, monkeypatch: pytest.MonkeyPatch #fixture above is test_database_url
+    test_database_url: str,
+    monkeypatch: pytest.MonkeyPatch,  # fixture above is test_database_url
 ) -> Iterator[psycopg.Connection[TupleRow]]:
     """A connection to crotalus_test. Tables are emptied after each test."""
     monkeypatch.setenv("DATABASE_URL", test_database_url)

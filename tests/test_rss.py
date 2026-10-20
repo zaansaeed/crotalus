@@ -36,11 +36,13 @@ def test_parses_valid_entries(feed: feedparser.FeedParserDict) -> None:
             name="requests",
             version="2.31.0",
             published_at=datetime(2026, 10, 17, 4, 33, 56, tzinfo=timezone.utc),
+            source="rss",
         ),
         FeedEntry(
             name="x5-browser-tools",
             version="1.6.0",
             published_at=datetime(2026, 10, 17, 4, 33, 8, tzinfo=timezone.utc),
+            source="rss",
         ),
     ]
 

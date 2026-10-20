@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import feedparser
 
@@ -25,6 +25,9 @@ if TYPE_CHECKING:
 RSS_URL = "https://pypi.org/rss/updates.xml"
 
 _NAME_SEPARATORS = re.compile(r"[-_.]+")
+
+# How crotalus found a release; matches the CHECK on releases.source.
+Source = Literal["rss", "on_demand"]
 
 
 def normalize_name(name: str) -> str:
@@ -38,6 +41,7 @@ class FeedEntry:
     name: str  # PEP 503 normalized,
     version: str  # e.g. "0.5.20"
     published_at: datetime  # timezone-aware, UTC
+    source: Source  # "rss" or "on_demand"
 
 
 def poll(rss_url: str) -> FeedParserDict | None:
@@ -75,7 +79,12 @@ def parse_feed(feed: FeedParserDict) -> list[FeedEntry]:
                 continue
 
             parsed_entries.append(
-                FeedEntry(name=normalize_name(name), version=version, published_at=timestamp)
+                FeedEntry(
+                    name=normalize_name(name),
+                    version=version,
+                    published_at=timestamp,
+                    source="rss",
+                )
             )
 
         except (ValueError, AttributeError):
