@@ -1,9 +1,10 @@
 """Ingest new PyPI releases from the RSS feed.
 
 PyPI publishes its most recent uploads at `https://pypi.org/rss/updates.xml`.
-This module fetches that feed (`poll`) and turns each item into a `FeedEntry`
+This module fetches that feed (`fetch_feed`) and turns each item into a `FeedEntry`
 (`parse_feed`) with a PEP 503 normalized name, version, and UTC publish time.
-Malformed items are skipped rather than failing the whole batch.
+Malformed items are skipped rather than failing the whole batch. `fetch_entries`
+does both, returning None when the feed can't be used this time.
 
 It is the first stage of crotalus: the feed is polled frequently so newly
 published releases can be queued for analysis within minutes of upload.
@@ -44,7 +45,8 @@ class FeedEntry:
     source: Source  # "rss" or "on_demand"
 
 
-def poll(rss_url: str) -> FeedParserDict | None:
+def fetch_feed(rss_url: str = RSS_URL) -> FeedParserDict | None:
+    """Download and parse the feed XML. Returns None if the feed is malformed."""
     feed = feedparser.parse(rss_url)
 
     # Check if feedparser encountered an issue (malformed XML, bad encoding, etc.)
@@ -94,5 +96,13 @@ def parse_feed(feed: FeedParserDict) -> list[FeedEntry]:
     return parsed_entries
 
 
-if __name__ == "__main__":
-    pass
+def fetch_entries(rss_url: str = RSS_URL) -> list[FeedEntry] | None:
+    """Fetch and parse the feed. Returns None if it can't be used this time."""
+    try:
+        feed = fetch_feed(rss_url)
+        if feed is None:
+            return None  # fetch_feed() already printed why
+        return parse_feed(feed)
+    except Exception as exc:  # network or parsing problems only; no database work in here
+        print(f"Feed error: {exc!r}")
+        return None

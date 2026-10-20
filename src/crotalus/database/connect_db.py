@@ -13,11 +13,14 @@ import psycopg
 from dotenv import load_dotenv
 from psycopg.rows import TupleRow
 
-# we must connect to our database to do anything to it programmatically via python. 
-# this will run after the docker compose runs, so we can talk to that postgres server in the docker container.
-def connect() -> psycopg.Connection[TupleRow]: 
+# we must connect to our database to do anything to it programmatically via python.
+# this will run after the docker compose runs, so we can talk to that
+# postgres server in the docker container.
+
+
+def connect() -> psycopg.Connection[TupleRow]:
     """Return a new connection to the database named by `DATABASE_URL`.
-        Rows are tuples.
+    Rows are tuples.
     """
     # Loads .env if present. Never overrides variables that are already set,
     # so values from the shell, CI or AWS take priority.

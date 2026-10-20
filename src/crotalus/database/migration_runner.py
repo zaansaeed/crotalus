@@ -63,16 +63,17 @@ def apply_migration(connection: psycopg.Connection[TupleRow], path: Path) -> Non
 
 def main() -> None:
     with connect() as connection:
-        connection.autocommit = True #each transaction with this one is its own seperate transaction
+        connection.autocommit = (
+            True  # each transaction with this one is its own seperate transaction
+        )
         create_tracking_table(connection)
         applied_migrations = get_applied(connection)
-
 
         for path in find_migrations():
             if path.stem not in applied_migrations:
                 apply_migration(connection, path)
                 print(f"Applied migration: {path.stem}")
-            
-        
+
+
 if __name__ == "__main__":
     main()
