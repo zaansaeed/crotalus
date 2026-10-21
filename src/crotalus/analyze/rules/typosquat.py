@@ -19,6 +19,7 @@ TOP_PACKAGES_FILE = Path(__file__).resolve().parents[1] / "data" / "top_packages
 # Shorter names are too often a typo away from something popular by chance (six -> sax).
 MIN_NAME_LENGTH = 5
 MAX_DISTANCE = 2
+SHORT_NAME_LENGTH = 8  # below this, only 1 edit counts: 2 edits make it a different word
 
 
 def levenshtein(a: str, b: str) -> int:
@@ -56,13 +57,15 @@ def find_lookalike(name: str, top_packages: Sequence[str]) -> tuple[str, int] | 
     if len(name) < MIN_NAME_LENGTH or name in top_packages:
         return None
 
+    
+    max_distance = 1 if len(name) < SHORT_NAME_LENGTH else MAX_DISTANCE
+
     best_match: tuple[str, int] | None = None
     for target in top_packages:
-        # Each edit changes the length by at most 1, so this pair can't be close enough.
-        if abs(len(target) - len(name)) > MAX_DISTANCE:
+        if abs(len(target) - len(name)) > max_distance:
             continue
         distance = levenshtein(name, target)
-        if distance <= MAX_DISTANCE and (best_match is None or distance < best_match[1]):
+        if distance <= max_distance and (best_match is None or distance < best_match[1]):
             best_match = (target, distance)
             if distance == 1:
                 break  # can't do better, and later targets are less popular

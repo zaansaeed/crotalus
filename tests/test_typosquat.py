@@ -69,6 +69,8 @@ def test_typosquat_finding(monkeypatch: pytest.MonkeyPatch) -> None:
         )
     ]
 
+def test_short_names_allow_one_typo_only() -> None:
+    assert find_lookalike("nmupi", TOP) is None  # 2 edits from "numpy", but only 5 chars
 
 def test_typosquat_nothing_found(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(typosquat, "load_top_packages", lambda: TOP)
