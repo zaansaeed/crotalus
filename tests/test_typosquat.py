@@ -1,6 +1,6 @@
 import pytest
 
-from crotalus.analyze.models import AnalysisContext, Finding, Release, ReleaseMetadata
+from crotalus.models import AnalysisContext, Finding, Release, ReleaseMetadata
 from crotalus.analyze.rules import typosquat
 from crotalus.analyze.rules.typosquat import check, find_lookalike, levenshtein
 

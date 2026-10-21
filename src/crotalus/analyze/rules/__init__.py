@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from crotalus.analyze.models import AnalysisContext, Finding
+from crotalus.models import AnalysisContext, Finding
 from crotalus.analyze.rules import typosquat
 
 Rule = Callable[[AnalysisContext], list[Finding]]

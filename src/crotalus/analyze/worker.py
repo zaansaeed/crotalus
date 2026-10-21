@@ -25,7 +25,7 @@ import psycopg
 from psycopg.rows import TupleRow
 from psycopg.types.json import Jsonb
 
-from crotalus.analyze.models import AnalysisContext, Finding, Release
+from crotalus.models import AnalysisContext, Finding, Release
 from crotalus.analyze.rules import RULES
 from crotalus.database.connect_db import connect
 from crotalus.pypi.client import PyPIUnavailable, fetch_metadata

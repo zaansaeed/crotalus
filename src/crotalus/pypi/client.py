@@ -25,7 +25,7 @@ from datetime import datetime
 from typing import Any
 
 from crotalus import __version__
-from crotalus.analyze.models import ReleaseFile, ReleaseMetadata
+from crotalus.models import ReleaseFile, ReleaseMetadata
 
 RELEASE_URL = "https://pypi.org/pypi/{name}/{version}/json"
 # PyPI asks API clients to identify themselves.

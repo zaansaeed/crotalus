@@ -5,7 +5,7 @@ import pytest
 from psycopg.rows import TupleRow
 
 from crotalus.analyze import worker
-from crotalus.analyze.models import Finding, Release, ReleaseMetadata
+from crotalus.models import Finding, Release, ReleaseMetadata
 from crotalus.analyze.worker import claim_release, process_one
 from crotalus.database.connect_db import connect
 from crotalus.ingest.ingest_storer import store_entries
