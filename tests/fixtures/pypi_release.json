@@ -1,0 +1,33 @@
+{
+  "info": {
+    "name": "ExamplePkg",
+    "version": "1.0",
+    "summary": "",
+    "author": "",
+    "author_email": "dev@example.com",
+    "home_page": "https://example.com",
+    "project_urls": {
+      "Source": "https://github.com/example/examplepkg"
+    }
+  },
+  "urls": [
+    {
+      "filename": "examplepkg-1.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/bb/examplepkg-1.0-py3-none-any.whl",
+      "packagetype": "bdist_wheel",
+      "size": 3400,
+      "digests": {"sha256": "1010101010101010101010101010101010101010101010101010101010101010"},
+      "upload_time_iso_8601": "2024-06-01T12:05:00.000000Z"
+    },
+    {
+      "filename": "examplepkg-1.0.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/cc/examplepkg-1.0.tar.gz",
+      "packagetype": "sdist",
+      "size": 2500,
+      "digests": {"sha256": "1111111111111111111111111111111111111111111111111111111111111111"},
+      "upload_time_iso_8601": "2024-06-01T12:00:00.000000Z"
+    }
+  ],
+  "last_serial": 123456,
+  "vulnerabilities": []
+}

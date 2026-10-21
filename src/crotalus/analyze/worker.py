@@ -8,6 +8,8 @@ on it the whole time:
 - If the worker dies mid-analysis, Postgres rolls back and the release goes back to
   'pending' for the next worker. Database changes only are rolled back.
 - If the analysis raises, the release is marked 'failed' so it isn't retried forever.
+  Except when PyPI is unreachable: that isn't the release's fault, so it rolls back
+  to 'pending' and the worker waits before trying again.
 
 Because the claim is never committed on its own, other connections never see a
 release in 'analyzing'. That status is unused for now.
@@ -23,11 +25,13 @@ import psycopg
 from psycopg.rows import TupleRow
 from psycopg.types.json import Jsonb
 
-from crotalus.analyze.models import Finding, Release
+from crotalus.analyze.models import AnalysisContext, Finding, Release
 from crotalus.analyze.rules import RULES
 from crotalus.database.connect_db import connect
+from crotalus.pypi.client import PyPIUnavailable, fetch_metadata
 
 IDLE_SLEEP_SECONDS = 5
+PYPI_BACKOFF_SECONDS = 30
 
 
 def claim_release(conn: psycopg.Connection[TupleRow]) -> Release | None:
@@ -53,8 +57,10 @@ def claim_release(conn: psycopg.Connection[TupleRow]) -> Release | None:
 
 
 def analyze(release: Release) -> list[Finding]:
-    """Run every detection rule on a release and collect what they found."""
-    return [finding for rule in RULES for finding in rule(release)]
+    """Fetch the release's PyPI metadata, then run every detection rule on it."""
+    metadata = fetch_metadata(release.name, release.version)
+    context = AnalysisContext(release=release, metadata=metadata)
+    return [finding for rule in RULES for finding in rule(context)]
 
 
 def store_findings(
@@ -89,6 +95,9 @@ def process_one(conn: psycopg.Connection[TupleRow]) -> bool:
 
         try:
             findings = analyze(release)
+        except PyPIUnavailable:
+            # Not this release's fault. Roll back so it stays pending; main() waits and retries.
+            raise
         except Exception as exc:  # analysis problems only; no database work in analyze()
             print(f"Analysis failed for {release.name} {release.version}: {exc!r}")
             set_status(conn, release.id, "failed")
@@ -106,8 +115,13 @@ def main() -> None:
         with connect() as conn:
             conn.autocommit = True # each transaction within this one connection is its own transaction, not apart of one larger one.
             while True:
-                if not process_one(conn):
-                    time.sleep(IDLE_SLEEP_SECONDS)
+                try:
+                    if not process_one(conn):
+                        time.sleep(IDLE_SLEEP_SECONDS)
+                except PyPIUnavailable as exc:
+                    # Marking releases failed while PyPI is down would fail the whole queue.
+                    print(f"PyPI unavailable ({exc}); retrying in {PYPI_BACKOFF_SECONDS}s")
+                    time.sleep(PYPI_BACKOFF_SECONDS)
     except KeyboardInterrupt:
         # Ctrl+C mid-analysis rolls back, so that release is simply pending again.
         print("Stopped.")

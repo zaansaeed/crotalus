@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from functools import cache
 from pathlib import Path
 
-from crotalus.analyze.models import Finding, Release
+from crotalus.analyze.models import AnalysisContext, Finding
 
 TOP_PACKAGES_FILE = Path(__file__).resolve().parents[1] / "data" / "top_packages.txt"
 # TOP 5000 most common pypi packages in the last 30 days
@@ -72,9 +72,9 @@ def find_lookalike(name: str, top_packages: Sequence[str]) -> tuple[str, int] | 
     return best_match
 
 
-def check(release: Release) -> list[Finding]:
+def check(context: AnalysisContext) -> list[Finding]:
     """Flag the release if its name looks like a typo of a popular package."""
-    match = find_lookalike(release.name, load_top_packages())
+    match = find_lookalike(context.release.name, load_top_packages())
     if match is None:
         return []
 

@@ -1,8 +1,9 @@
-"""Data passed between the worker and the detection rules."""
+"""Data passed between the worker, the PyPI client and the detection rules."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal
 
 # Matches the CHECK on findings.severity.
@@ -15,6 +16,39 @@ class Release:
     id: int
     name: str  # PEP 503 normalized
     version: str
+
+
+# One file uploaded for a release (an sdist or a wheel), as PyPI describes it.
+@dataclass(frozen=True)
+class ReleaseFile:
+    filename: str
+    url: str
+    packagetype: str  # "sdist" or "bdist_wheel"
+    size: int  # bytes
+    sha256: str
+    uploaded_at: datetime  # UTC
+
+
+# PyPI's metadata for one release.
+@dataclass(frozen=True)
+class ReleaseMetadata:
+    """What PyPI says about one version, as of that version."""
+
+    name: str  # as the author wrote it, not normalized
+    version: str
+    summary: str | None = None
+    author: str | None = None
+    project_urls: dict[str, str] = field(default_factory=dict)  # label -> URL, incl. homepage
+    files: tuple[ReleaseFile, ...] = ()
+    uploaded_at: datetime | None = None  # earliest of its files; None if it has none
+
+
+# Everything the rules get to look at for one release. Grows as rules need more
+# (downloaded files, the previous version's diff, ...). will be helpful for agents
+@dataclass(frozen=True)
+class AnalysisContext:
+    release: Release
+    metadata: ReleaseMetadata
 
 
 # Finding for one release.

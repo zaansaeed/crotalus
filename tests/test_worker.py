@@ -5,11 +5,12 @@ import pytest
 from psycopg.rows import TupleRow
 
 from crotalus.analyze import worker
-from crotalus.analyze.models import Finding, Release
+from crotalus.analyze.models import Finding, Release, ReleaseMetadata
 from crotalus.analyze.worker import claim_release, process_one
 from crotalus.database.connect_db import connect
 from crotalus.ingest.ingest_storer import store_entries
 from crotalus.ingest.rss_ingestor import FeedEntry
+from crotalus.pypi.client import PyPIUnavailable, ReleaseNotFound
 
 Conn = psycopg.Connection[TupleRow]
 
@@ -24,8 +25,11 @@ FINDING = Finding(
 
 @pytest.fixture(autouse=True)
 def no_rules(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test the worker's plumbing, not the real rules (they have their own tests)."""
+    """Test the worker's plumbing, not the real rules or PyPI (they have their own tests)."""
     monkeypatch.setattr(worker, "RULES", [])
+    monkeypatch.setattr(
+        worker, "fetch_metadata", lambda name, version: ReleaseMetadata(name=name, version=version)
+    )
 
 
 def add_release(db: Conn, name: str, version: str = "1.0") -> None:
@@ -100,3 +104,24 @@ def test_locked_release_is_skipped(db: Conn) -> None:
             assert claim_release(other) is None
     # Lock released without marking it done: still pending for the next worker.
     assert status_of(db, "requests") == "pending"
+
+
+def test_release_not_on_pypi_marks_failed(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
+    def not_found(name: str, version: str) -> ReleaseMetadata:
+        raise ReleaseNotFound(f"{name} is not on PyPI")
+
+    monkeypatch.setattr(worker, "fetch_metadata", not_found)
+    add_release(db, "requests")
+    assert process_one(db) is True
+    assert status_of(db, "requests") == "failed"
+
+
+def test_pypi_down_leaves_release_pending(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
+    def unavailable(name: str, version: str) -> ReleaseMetadata:
+        raise PyPIUnavailable("PyPI returned 503")
+
+    monkeypatch.setattr(worker, "fetch_metadata", unavailable)
+    add_release(db, "requests")
+    with pytest.raises(PyPIUnavailable):
+        process_one(db)
+    assert status_of(db, "requests") == "pending"  # rolled back, will be retried
