@@ -15,8 +15,10 @@ specific release is safe.
 
 - [x] Ingest new releases from PyPI's RSS feed
 - [x] Database schema
-- [ ] Store releases *(in progress)*
-- [ ] Detection rules
+- [x] Store releases 
+- [x] Detection rules 
+- [ ] Rule scoring + verdicts*(in progress)*
+- [ ] LLM triaging for code diffs
 - [ ] API
 - [ ] Deployment on AWS
 
