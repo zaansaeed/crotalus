@@ -31,7 +31,7 @@ def main() -> None:
     header = f"# Top {len(names)} PyPI packages by downloads, most first.\n# Source: {URL}\n"
     header += f"# Generated {date.today()} by scripts/update_top_packages.py\n"
     TOP_PACKAGES_FILE.parent.mkdir(exist_ok=True)
-    TOP_PACKAGES_FILE.write_text(header + "\n".join(names) + "\n")
+    TOP_PACKAGES_FILE.write_text(header + "\n".join(names) + "\n", encoding="utf-8")
     print(f"Wrote {len(names)} names to {Path(TOP_PACKAGES_FILE)}")
 
 

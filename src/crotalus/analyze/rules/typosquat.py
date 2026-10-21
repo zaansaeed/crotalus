@@ -44,7 +44,7 @@ def levenshtein(a: str, b: str) -> int:
 @cache  # read the file once per process, not once per release
 def load_top_packages() -> tuple[str, ...]:
     """Popular package names, most downloaded first. Lines starting with '#' are comments."""
-    lines = TOP_PACKAGES_FILE.read_text().splitlines()
+    lines = TOP_PACKAGES_FILE.read_text(encoding="utf-8").splitlines()
     return tuple(line.strip() for line in lines if line.strip() and not line.startswith("#"))
 
 

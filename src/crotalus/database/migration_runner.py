@@ -47,7 +47,8 @@ def apply_migration(connection: psycopg.Connection[TupleRow], path: Path) -> Non
     Apply one single migration to the database, and update the tracking table.
     """
 
-    sql_text = path.read_text()
+    # Explicit UTF-8: the default is platform-dependent (cp1252 on Windows).
+    sql_text = path.read_text(encoding="utf-8")
 
     # One transaction: the migration and its record succeed or fail together.
     with connection.transaction():
