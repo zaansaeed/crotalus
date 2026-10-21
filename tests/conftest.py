@@ -61,4 +61,4 @@ def db(
     with connect() as conn:
         conn.autocommit = True
         yield conn
-        conn.execute("TRUNCATE packages, releases, ingest_runs RESTART IDENTITY")
+        conn.execute("TRUNCATE packages, releases, ingest_runs, findings RESTART IDENTITY")
