@@ -18,34 +18,16 @@ Database errors are not caught: the worker stops so the problem gets looked at.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
-from typing import Any, Literal
 
 import psycopg
 from psycopg.rows import TupleRow
 from psycopg.types.json import Jsonb
 
+from crotalus.analyze.models import Finding, Release
+from crotalus.analyze.rules import RULES
 from crotalus.database.connect_db import connect
 
 IDLE_SLEEP_SECONDS = 5
-
-# Matches the CHECK on findings.severity.
-Severity = Literal["low", "medium", "high", "critical"]
-
-# One release from database.
-@dataclass(frozen=True)
-class Release:
-    id: int
-    name: str  # PEP 503 normalized
-    version: str
-
-# Finding for one release.
-@dataclass(frozen=True)
-class Finding:
-    rule_id: str  # snake_case, e.g. "typosquat"
-    severity: Severity
-    message: str  # one line for humans
-    evidence: dict[str, Any] = field(default_factory=dict)  # stored as jsonb
 
 
 def claim_release(conn: psycopg.Connection[TupleRow]) -> Release | None:
@@ -71,8 +53,8 @@ def claim_release(conn: psycopg.Connection[TupleRow]) -> Release | None:
 
 
 def analyze(release: Release) -> list[Finding]:
-    """Run the detection rules on a release. No rules yet."""
-    return []
+    """Run every detection rule on a release and collect what they found."""
+    return [finding for rule in RULES for finding in rule(release)]
 
 
 def store_findings(

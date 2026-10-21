@@ -5,7 +5,8 @@ import pytest
 from psycopg.rows import TupleRow
 
 from crotalus.analyze import worker
-from crotalus.analyze.worker import Finding, Release, claim_release, process_one
+from crotalus.analyze.models import Finding, Release
+from crotalus.analyze.worker import claim_release, process_one
 from crotalus.database.connect_db import connect
 from crotalus.ingest.ingest_storer import store_entries
 from crotalus.ingest.rss_ingestor import FeedEntry
@@ -19,6 +20,12 @@ FINDING = Finding(
     message="name is 1 edit away from 'requests'",
     evidence={"similar_to": "requests", "distance": 1},
 )
+
+
+@pytest.fixture(autouse=True)
+def no_rules(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test the worker's plumbing, not the real rules (they have their own tests)."""
+    monkeypatch.setattr(worker, "RULES", [])
 
 
 def add_release(db: Conn, name: str, version: str = "1.0") -> None:
