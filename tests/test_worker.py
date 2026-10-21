@@ -30,6 +30,7 @@ def no_rules(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         worker, "fetch_metadata", lambda name, version: ReleaseMetadata(name=name, version=version)
     )
+    monkeypatch.setattr(worker, "fetch_first_upload", lambda name: WHEN)
 
 
 def add_release(db: Conn, name: str, version: str = "1.0") -> None:
@@ -125,3 +126,31 @@ def test_pypi_down_leaves_release_pending(db: Conn, monkeypatch: pytest.MonkeyPa
     with pytest.raises(PyPIUnavailable):
         process_one(db)
     assert status_of(db, "requests") == "pending"  # rolled back, will be retried
+
+
+def test_package_history_fetched_once(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    def fetch_first_upload(name: str) -> datetime:
+        calls.append(name)
+        return WHEN
+
+    monkeypatch.setattr(worker, "fetch_first_upload", fetch_first_upload)
+    add_release(db, "requests", "1.0")
+    add_release(db, "requests", "2.0")
+    process_one(db)
+    process_one(db)
+    assert calls == ["requests"]  # the second release used the stored value
+    row = db.execute("SELECT first_uploaded_at FROM packages WHERE name = 'requests'").fetchone()
+    assert row == (WHEN,)
+
+
+def test_rules_see_package_history(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[datetime | None] = []
+    monkeypatch.setattr(
+        worker, "RULES", [lambda context: seen.append(context.package.first_uploaded_at) or []]
+    )
+    add_release(db, "requests")
+    process_one(db)
+    assert seen == [WHEN]
+

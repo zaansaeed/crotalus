@@ -1,12 +1,12 @@
-"""Fetch one release's metadata from PyPI's JSON API.
+"""Fetch release and package metadata from PyPI's JSON API.
 
-`https://pypi.org/pypi/<name>/<version>/json` describes a single version: its own
-`info` (summary, author, links, ...) and `urls`, the files uploaded for it.
-`fetch_release_json` downloads that, `parse_metadata` picks out what the detection
-rules need, and `fetch_metadata` does both.
-
-This is release-specific only. Package history (age, earlier versions) would need
-the much larger project endpoint, `/pypi/<name>/json`, and isn't fetched yet.
+Two endpoints:
+- `/pypi/<name>/<version>/json` describes a single version: its own `info`
+  (summary, author, links, ...) and `urls`, the files uploaded for it.
+  `fetch_metadata` downloads and parses it. Called for every release.
+- `/pypi/<name>/json` describes the whole project, including every version's files.
+  It can be several MB, so it's only used by `fetch_first_upload`, which the worker
+  calls once per package and caches in the database.
 
 Errors:
 - ReleaseNotFound: the project or version isn't on PyPI. Either it was removed
@@ -28,6 +28,7 @@ from crotalus import __version__
 from crotalus.models import ReleaseFile, ReleaseMetadata
 
 RELEASE_URL = "https://pypi.org/pypi/{name}/{version}/json"
+PROJECT_URL = "https://pypi.org/pypi/{name}/json"
 # PyPI asks API clients to identify themselves.
 USER_AGENT = f"crotalus/{__version__} (+https://github.com/zaansaeed/crotalus)"
 TIMEOUT_SECONDS = 10
@@ -45,14 +46,14 @@ class PyPIUnavailable(PyPIError):
     pass
 
 
-def fetch_release_json(name: str, version: str) -> dict[str, Any]:
-    """Download one release's JSON. Raises ReleaseNotFound, PyPIUnavailable or PyPIError."""
-    # Versions can contain characters that aren't URL-safe, e.g. "1.0+local".
-    url = RELEASE_URL.format(name=name, version=urllib.parse.quote(version, safe=""))
+def _get_json(url: str, label: str) -> dict[str, Any]:
+    """GET a PyPI JSON URL. `label` names what's being fetched, for error messages.
+
+    Raises ReleaseNotFound, PyPIUnavailable or PyPIError.
+    """
     request = urllib.request.Request(
         url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}
     )
-    label = f"{name} {version}"
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
             data: dict[str, Any] = json.load(response)
@@ -68,6 +69,18 @@ def fetch_release_json(name: str, version: str) -> dict[str, Any]:
         raise PyPIUnavailable(f"could not reach PyPI for {label}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise PyPIError(f"PyPI sent invalid JSON for {label}") from exc
+
+
+def fetch_release_json(name: str, version: str) -> dict[str, Any]:
+    """Download one release's JSON."""
+    # Versions can contain characters that aren't URL-safe, e.g. "1.0+local".
+    url = RELEASE_URL.format(name=name, version=urllib.parse.quote(version, safe=""))
+    return _get_json(url, f"{name} {version}")
+
+
+def fetch_project_json(name: str) -> dict[str, Any]:
+    """Download a whole project's JSON: every version and its files."""
+    return _get_json(PROJECT_URL.format(name=name), name)
 
 
 def _parse_time(value: str) -> datetime:
@@ -112,3 +125,26 @@ def parse_metadata(release_json: dict[str, Any]) -> ReleaseMetadata:
 
 def fetch_metadata(name: str, version: str) -> ReleaseMetadata:
     return parse_metadata(fetch_release_json(name, version))
+
+
+def parse_first_upload(project_json: dict[str, Any]) -> datetime | None:
+    """When the project's first file was uploaded, across all versions. None if it has none."""
+    try:
+        return min(
+            (
+                _parse_time(raw["upload_time_iso_8601"])
+                for files in project_json["releases"].values()
+                for raw in files
+            ),
+            default=None,
+        )
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise PyPIError(f"unexpected JSON shape from PyPI: {exc!r}") from exc
+
+
+def fetch_first_upload(name: str) -> datetime | None:
+    """
+    Fetches entire project json, finds first upload time of every file, and then returns the oldest one. 
+    Gives one date for the first file in the project, ever. 
+    """
+    return parse_first_upload(fetch_project_json(name))

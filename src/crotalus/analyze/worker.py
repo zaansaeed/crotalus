@@ -25,10 +25,10 @@ import psycopg
 from psycopg.rows import TupleRow
 from psycopg.types.json import Jsonb
 
-from crotalus.models import AnalysisContext, Finding, Release
+from crotalus.models import AnalysisContext, Finding, PackageInfo, Release
 from crotalus.analyze.rules import RULES
 from crotalus.database.connect_db import connect
-from crotalus.pypi.client import PyPIUnavailable, fetch_metadata
+from crotalus.pypi.client import PyPIUnavailable, fetch_first_upload, fetch_metadata
 
 IDLE_SLEEP_SECONDS = 5
 PYPI_BACKOFF_SECONDS = 30
@@ -56,10 +56,34 @@ def claim_release(conn: psycopg.Connection[TupleRow]) -> Release | None:
     return Release(id=row[0], name=row[1], version=row[2])
 
 
-def analyze(release: Release) -> list[Finding]:
-    """Fetch the release's PyPI metadata, then run every detection rule on it."""
+def get_package_info(conn: psycopg.Connection[TupleRow], name: str) -> PackageInfo:
+    """The package's history, from the database if we have it, else from PyPI (once)."""
+    row = conn.execute(
+        "SELECT first_uploaded_at FROM packages WHERE name = %s", (name,)
+    ).fetchone()
+    first_uploaded_at = row[0] if row else None
+
+    if first_uploaded_at is None:
+        # Not looked up yet. The project JSON can be large, so this happens once per package.
+        first_uploaded_at = fetch_first_upload(name)
+        conn.execute(
+            "UPDATE packages SET first_uploaded_at = %s WHERE name = %s",
+            (first_uploaded_at, name),
+        )
+    return PackageInfo(first_uploaded_at=first_uploaded_at)
+
+
+def build_context(conn: psycopg.Connection[TupleRow], release: Release) -> AnalysisContext:
+    """Gather everything the rules look at: PyPI metadata, with release name and version, plus package history 
+    (the time this package was created)."""
+    # The release first: if it's gone from PyPI, don't bother with the package history.
     metadata = fetch_metadata(release.name, release.version)
-    context = AnalysisContext(release=release, metadata=metadata)
+    package = get_package_info(conn, release.name)
+    return AnalysisContext(release=release, metadata=metadata, package=package)
+
+
+def analyze(context: AnalysisContext) -> list[Finding]:
+    """Run every detection rule on a release."""
     return [finding for rule in RULES for finding in rule(context)]
 
 
@@ -94,11 +118,13 @@ def process_one(conn: psycopg.Connection[TupleRow]) -> bool:
             return False
 
         try:
-            findings = analyze(release)
+            findings = analyze(build_context(conn, release))
         except PyPIUnavailable:
             # Not this release's fault. Roll back so it stays pending; main() waits and retries.
             raise
-        except Exception as exc:  # analysis problems only; no database work in analyze()
+        except psycopg.Error:
+            raise  # database problems stop the worker, like everywhere else
+        except Exception as exc:  # problems with this release or a bug in a rule
             print(f"Analysis failed for {release.name} {release.version}: {exc!r}")
             set_status(conn, release.id, "failed")
         else:

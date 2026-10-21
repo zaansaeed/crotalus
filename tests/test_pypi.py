@@ -13,7 +13,9 @@ from crotalus.pypi.client import (
     PyPIError,
     PyPIUnavailable,
     ReleaseNotFound,
+    fetch_first_upload,
     fetch_release_json,
+    parse_first_upload,
     parse_metadata,
 )
 
@@ -114,3 +116,38 @@ def test_fetch_request(monkeypatch: pytest.MonkeyPatch) -> None:
     # "+" must be escaped, or it's read as a space.
     assert seen[0].full_url == "https://pypi.org/pypi/examplepkg/1.0%2Blocal/json"
     assert str(seen[0].get_header("User-agent")).startswith("crotalus/")
+
+
+def test_first_upload_across_versions() -> None:
+    project = {
+        "releases": {
+            "1.0": [{"upload_time_iso_8601": "2024-06-01T12:00:00.000000Z"}],
+            "0.9": [
+                {"upload_time_iso_8601": "2024-01-01T10:05:00.000000Z"},
+                {"upload_time_iso_8601": "2024-01-01T10:00:00.000000Z"},
+            ],
+            "2.0": [],  # a version with no files
+        }
+    }
+    assert parse_first_upload(project) == datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
+
+
+def test_first_upload_without_files() -> None:
+    assert parse_first_upload({"releases": {}}) is None
+
+
+def test_first_upload_unexpected_shape() -> None:
+    with pytest.raises(PyPIError):
+        parse_first_upload({"releases": {"1.0": [{}]}})
+
+
+def test_fetch_project_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[urllib.request.Request] = []
+
+    def fake_urlopen(request: urllib.request.Request, timeout: float) -> Any:
+        seen.append(request)
+        return io.BytesIO(b'{"releases": {}}')
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    assert fetch_first_upload("examplepkg") is None
+    assert seen[0].full_url == "https://pypi.org/pypi/examplepkg/json"

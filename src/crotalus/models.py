@@ -43,12 +43,19 @@ class ReleaseMetadata:
     uploaded_at: datetime | None = None  # earliest of its files; None if it has none
 
 
+# What we know about the package as a whole, across all its versions.
+@dataclass(frozen=True)
+class PackageInfo:
+    first_uploaded_at: datetime | None = None  # the package's first file on PyPI; its age
+
+
 # Everything the rules get to look at for one release. Grows as rules need more
 # (downloaded files, the previous version's diff, ...). will be helpful for agents
 @dataclass(frozen=True)
 class AnalysisContext:
     release: Release
     metadata: ReleaseMetadata
+    package: PackageInfo
 
 
 # Finding for one release.
