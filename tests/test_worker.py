@@ -48,6 +48,16 @@ def status_of(db: Conn, name: str) -> str:
     return str(row[0])
 
 
+def verdict_of(db: Conn, name: str) -> tuple[int | None, str | None]:
+    row = db.execute(
+        "SELECT r.score, r.verdict FROM releases r JOIN packages p ON p.id = r.package_id"
+        " WHERE p.name = %s",
+        (name,),
+    ).fetchone()
+    assert row is not None
+    return row[0], row[1]
+
+
 def test_nothing_pending_returns_false(db: Conn) -> None:
     assert process_one(db) is False
 
@@ -56,6 +66,7 @@ def test_marks_release_done(db: Conn) -> None:
     add_release(db, "requests")
     assert process_one(db) is True
     assert status_of(db, "requests") == "done"
+    assert verdict_of(db, "requests") == (0, "clean")  # no rules, no findings
     assert process_one(db) is False  # nothing left
 
 
@@ -74,13 +85,15 @@ def test_stores_findings(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
     process_one(db)
     row = db.execute("SELECT rule_id, severity, message, evidence FROM findings").fetchone()
     assert row == (FINDING.rule_id, FINDING.severity, FINDING.message, FINDING.evidence)
+    assert verdict_of(db, "reqeusts") == (6, "suspicious")  # one high finding
 
 
 def test_reanalysis_replaces_findings(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(worker, "analyze", lambda release: [FINDING])
     add_release(db, "reqeusts")
     process_one(db)
-    db.execute("UPDATE releases SET status = 'pending'")
+    # Re-queue it. A pending release can't keep its old verdict (releases_verdict_iff_done).
+    db.execute("UPDATE releases SET status = 'pending', score = NULL, verdict = NULL")
     process_one(db)
     row = db.execute("SELECT count(*) FROM findings").fetchone()
     assert row == (1,)
@@ -94,6 +107,22 @@ def test_analysis_error_marks_failed(db: Conn, monkeypatch: pytest.MonkeyPatch) 
     add_release(db, "requests")
     assert process_one(db) is True
     assert status_of(db, "requests") == "failed"
+    assert verdict_of(db, "requests") == (None, None)
+
+
+def test_failed_reanalysis_clears_verdict(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
+    add_release(db, "requests")
+    process_one(db)
+    assert verdict_of(db, "requests") == (0, "clean")
+
+    def broken(release: Release) -> list[Finding]:
+        raise ValueError("bad archive")
+
+    monkeypatch.setattr(worker, "analyze", broken)
+    db.execute("UPDATE releases SET status = 'pending', score = NULL, verdict = NULL")
+    process_one(db)
+    assert status_of(db, "requests") == "failed"
+    assert verdict_of(db, "requests") == (None, None)
 
 
 def test_locked_release_is_skipped(db: Conn) -> None:
@@ -115,6 +144,22 @@ def test_release_not_on_pypi_marks_failed(db: Conn, monkeypatch: pytest.MonkeyPa
     add_release(db, "requests")
     assert process_one(db) is True
     assert status_of(db, "requests") == "failed"
+    assert verdict_of(db, "requests") == (None, None)
+
+
+def test_failed_reanalysis_clears_verdict(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
+    add_release(db, "requests")
+    process_one(db)
+    assert verdict_of(db, "requests") == (0, "clean")
+
+    def broken(release: Release) -> list[Finding]:
+        raise ValueError("bad archive")
+
+    monkeypatch.setattr(worker, "analyze", broken)
+    db.execute("UPDATE releases SET status = 'pending', score = NULL, verdict = NULL")
+    process_one(db)
+    assert status_of(db, "requests") == "failed"
+    assert verdict_of(db, "requests") == (None, None)
 
 
 def test_pypi_down_leaves_release_pending(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -9,6 +9,9 @@ from typing import Any, Literal
 # Matches the CHECK on findings.severity.
 Severity = Literal["low", "medium", "high", "critical"]
 
+# Matches the CHECK on releases.verdict.
+Verdict = Literal["clean", "suspicious", "likely_malicious"]
+
 
 # One release from database.
 @dataclass(frozen=True)

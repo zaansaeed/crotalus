@@ -7,6 +7,7 @@ on it the whole time:
 - Another worker skips locked rows (SKIP LOCKED), so no release is analyzed twice.
 - If the worker dies mid-analysis, Postgres rolls back and the release goes back to
   'pending' for the next worker. Database changes only are rolled back.
+- Success stores the findings, a score and a verdict (see scoring.py) and marks it 'done'.
 - If the analysis raises, the release is marked 'failed' so it isn't retried forever.
   Except when PyPI is unreachable: that isn't the release's fault, so it rolls back
   to 'pending' and the worker waits before trying again.
@@ -25,8 +26,9 @@ import psycopg
 from psycopg.rows import TupleRow
 from psycopg.types.json import Jsonb
 
-from crotalus.models import AnalysisContext, Finding, PackageInfo, Release
+from crotalus.analyze import scoring
 from crotalus.analyze.rules import RULES
+from crotalus.models import AnalysisContext, Finding, PackageInfo, Release, Verdict
 from crotalus.database.connect_db import connect
 from crotalus.pypi.client import PyPIUnavailable, fetch_first_upload, fetch_metadata
 
@@ -106,8 +108,22 @@ def store_findings(
         )
 
 
-def set_status(conn: psycopg.Connection[TupleRow], release_id: int, status: str) -> None:
-    conn.execute("UPDATE releases SET status = %s WHERE id = %s", (status, release_id))
+def mark_done(
+    conn: psycopg.Connection[TupleRow], release_id: int, score: int, verdict: Verdict
+) -> None:
+    """Mark a specific release as done, after a verdict and score have been given from the findings."""
+    conn.execute(
+        "UPDATE releases SET status = 'done', score = %s, verdict = %s WHERE id = %s",
+        (score, verdict, release_id),
+    )
+
+
+def mark_failed(conn: psycopg.Connection[TupleRow], release_id: int) -> None:
+    # Clear any verdict from an earlier analysis: only 'done' releases may have one.
+    conn.execute(
+        "UPDATE releases SET status = 'failed', score = NULL, verdict = NULL WHERE id = %s",
+        (release_id,),
+    )
 
 
 def process_one(conn: psycopg.Connection[TupleRow]) -> bool:
@@ -127,11 +143,13 @@ def process_one(conn: psycopg.Connection[TupleRow]) -> bool:
             raise  # database problems stop the worker, like everywhere else
         except Exception as exc:  # problems with this release or a bug in a rule
             print(f"Analysis failed for {release.name} {release.version}: {exc!r}")
-            set_status(conn, release.id, "failed")
-        else:
+            mark_failed(conn, release.id)
+        else: #everything is good in this branch. We can give a verdict to this release, given the findings
+            score = scoring.score(findings)
+            verdict = scoring.verdict(findings)
             store_findings(conn, release.id, findings)
-            set_status(conn, release.id, "done")
-            print(f"{release.name} {release.version}: {len(findings)} findings")
+            mark_done(conn, release.id, score, verdict)
+            print(f"{release.name} {release.version}: {verdict} (score {score})")
     return True
 
 

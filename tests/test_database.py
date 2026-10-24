@@ -55,3 +55,22 @@ def test_rejects_duplicate_release(db: Conn) -> None:
     add_release(db, package_id, "2.31.0")
     with pytest.raises(psycopg.errors.UniqueViolation):
         add_release(db, package_id, "2.31.0")
+
+
+def test_done_requires_verdict(db: Conn) -> None:
+    add_release(db, add_package(db, "requests"), "2.31.0")
+    with pytest.raises(psycopg.errors.CheckViolation):
+        db.execute("UPDATE releases SET status = 'done'")
+
+
+def test_verdict_requires_done(db: Conn) -> None:
+    add_release(db, add_package(db, "requests"), "2.31.0")
+    with pytest.raises(psycopg.errors.CheckViolation):
+        db.execute("UPDATE releases SET score = 0, verdict = 'clean'")  # still pending
+
+
+def test_rejects_unknown_verdict(db: Conn) -> None:
+    add_release(db, add_package(db, "requests"), "2.31.0")
+    with pytest.raises(psycopg.errors.CheckViolation):
+        db.execute("UPDATE releases SET status = 'done', score = 0, verdict = 'probably_fine'")
+
