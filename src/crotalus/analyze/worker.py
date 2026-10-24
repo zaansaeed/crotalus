@@ -2,7 +2,7 @@
 
 Run with: python -m crotalus.analyze.worker
 
-Each release is claimed and analyzed inside one transaction, which holds a row lock
+Each pending release is claimed and analyzed inside one transaction, which holds a row lock
 on it the whole time:
 - Another worker skips locked rows (SKIP LOCKED), so no release is analyzed twice.
 - If the worker dies mid-analysis, Postgres rolls back and the release goes back to
@@ -111,7 +111,8 @@ def set_status(conn: psycopg.Connection[TupleRow], release_id: int, status: str)
 
 
 def process_one(conn: psycopg.Connection[TupleRow]) -> bool:
-    """Claim, analyze and finish one release. Returns False if nothing was pending."""
+    """Claim, analyze and finish one release. Returns False if nothing was pending. 
+       Sets that release's status to done if successful, otherwise, it failed."""
     with conn.transaction():
         release = claim_release(conn)
         if release is None:

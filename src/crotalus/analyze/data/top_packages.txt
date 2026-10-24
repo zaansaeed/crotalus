@@ -1,6 +1,6 @@
 # Top 5000 PyPI packages by downloads, most first.
 # Source: https://hugovk.github.io/top-pypi-packages/top-pypi-packages.min.json
-# Generated 2026-10-20 by scripts/update_top_packages.py
+# Generated 2026-10-24 by scripts/update_top_packages.py
 boto3
 packaging
 typing-extensions
