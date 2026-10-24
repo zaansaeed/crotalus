@@ -1,4 +1,4 @@
-"""Data passed between the worker, the PyPI client and the detection rules."""
+"""Data passed between the poller, the worker, PyPI fetching and the detection rules."""
 
 from __future__ import annotations
 
@@ -6,11 +6,23 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
+# How crotalus found a release; matches the CHECK on releases.source.
+Source = Literal["rss", "on_demand"]
+
 # Matches the CHECK on findings.severity.
 Severity = Literal["low", "medium", "high", "critical"]
 
 # Matches the CHECK on releases.verdict.
 Verdict = Literal["clean", "suspicious", "likely_malicious"]
+
+
+# One item of PyPI's RSS feed: a release the poller should store.
+@dataclass(frozen=True)
+class FeedEntry:
+    name: str  # PEP 503 normalized,
+    version: str  # e.g. "0.5.20"
+    published_at: datetime  # timezone-aware, UTC
+    source: Source  # "rss" or "on_demand"
 
 
 # One release from database.

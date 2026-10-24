@@ -4,7 +4,7 @@ import psycopg
 import pytest
 from psycopg.rows import TupleRow
 
-from crotalus.database import migration_runner
+from crotalus.db import applied_migrations, migrate, migration_files
 
 Conn = psycopg.Connection[TupleRow]
 
@@ -31,11 +31,11 @@ def test_connects_to_test_database(db: Conn) -> None:
 
 
 def test_migrations_applied(db: Conn) -> None:
-    assert migration_runner.get_applied(db) == {p.stem for p in migration_runner.find_migrations()}
+    assert applied_migrations(db) == {p.stem for p in migration_files()}
 
 
 def test_rerunning_migrations_applies_nothing(db: Conn, capsys: pytest.CaptureFixture[str]) -> None:
-    migration_runner.main()
+    migrate()
     assert "Applied migration" not in capsys.readouterr().out
 
 

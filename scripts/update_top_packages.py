@@ -1,4 +1,4 @@
-"""Regenerate src/crotalus/analyze/data/top_packages.txt for the typosquat rule.
+"""Regenerate src/crotalus/data/top_packages.txt for the typosquat rule.
 
 Run with: python scripts/update_top_packages.py
 
@@ -8,21 +8,23 @@ projects over the last 30 days.
 
 from __future__ import annotations
 
-import json
-import urllib.request
 from datetime import date
 from pathlib import Path
 
-from crotalus.analyze.rules.typosquat import TOP_PACKAGES_FILE
-from crotalus.ingest.rss_ingestor import normalize_name #pep normalizer
+import httpx
+
+from crotalus.pypi import normalize_name  # pep normalizer
+from crotalus.rules.typosquat import TOP_PACKAGES_FILE
 
 URL = "https://hugovk.github.io/top-pypi-packages/top-pypi-packages.min.json"
 COUNT = 5000
 
 
 def main() -> None:
-    with urllib.request.urlopen(URL, timeout=30) as response:
-        rows = json.load(response)["rows"]  # [{"project": ..., "download_count": ...}, ...]
+    # A one-off download, not PyPI, so a plain httpx.get() is enough.
+    response = httpx.get(URL, timeout=30)
+    response.raise_for_status()
+    rows = response.json()["rows"]  # [{"project": ..., "download_count": ...}, ...]
 
     # The source is already sorted by downloads; keep that order, drop duplicates
     # that only differ before normalization.

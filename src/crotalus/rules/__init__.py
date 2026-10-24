@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from crotalus.analyze.rules import (
+from crotalus.models import AnalysisContext, Finding
+from crotalus.rules import (
     late_file_upload,
     missing_metadata,
     new_package,
@@ -17,7 +18,6 @@ from crotalus.analyze.rules import (
     suspicious_links,
     typosquat,
 )
-from crotalus.models import AnalysisContext, Finding
 
 Rule = Callable[[AnalysisContext], list[Finding]]
 

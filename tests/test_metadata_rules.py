@@ -7,13 +7,6 @@ from typing import Any
 
 import pytest
 
-from crotalus.analyze.rules import (
-    late_file_upload,
-    missing_metadata,
-    no_project_links,
-    sdist_only,
-    suspicious_links,
-)
 from crotalus.models import (
     AnalysisContext,
     Finding,
@@ -21,6 +14,13 @@ from crotalus.models import (
     Release,
     ReleaseFile,
     ReleaseMetadata,
+)
+from crotalus.rules import (
+    late_file_upload,
+    missing_metadata,
+    no_project_links,
+    sdist_only,
+    suspicious_links,
 )
 
 T0 = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)

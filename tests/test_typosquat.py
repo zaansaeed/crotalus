@@ -1,8 +1,8 @@
 import pytest
 
 from crotalus.models import AnalysisContext, Finding, PackageInfo, Release, ReleaseMetadata
-from crotalus.analyze.rules import typosquat
-from crotalus.analyze.rules.typosquat import check, find_lookalike, levenshtein
+from crotalus.rules import typosquat
+from crotalus.rules.typosquat import check, find_lookalike, levenshtein
 
 # Most popular first, like data/top_packages.txt.
 TOP = ("requests", "numpy", "pandas", "six", "panda")

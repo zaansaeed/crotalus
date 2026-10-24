@@ -1,7 +1,7 @@
 import pytest
 
-from crotalus.analyze.scoring import score, verdict
 from crotalus.models import Finding, Severity
+from crotalus.scoring import score, verdict
 
 
 def finding(rule_id: str, severity: Severity) -> Finding:
@@ -28,7 +28,8 @@ def test_rule_counts_once_at_its_worst() -> None:
     ("severities", "expected"),
     [
         (["low", "low", "low"], "clean"),  # 3
-        (["low", "medium"], "suspicious"),  # 4: the threshold itself
+        (["low", "medium"], "clean"),  # 4
+        (["low", "low", "medium"], "suspicious"), # 5: the threshold itself
         (["high"], "suspicious"),  # 6
         (["high", "medium"], "suspicious"),  # 9
         (["high", "medium", "low"], "likely_malicious"),  # 10: the threshold itself

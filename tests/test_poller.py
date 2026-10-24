@@ -4,8 +4,10 @@ import psycopg
 import pytest
 from psycopg.rows import TupleRow
 
-from crotalus.ingest.ingest_storer import store_entries
-from crotalus.ingest.rss_ingestor import FeedEntry
+from crotalus import poller
+from crotalus.models import FeedEntry
+from crotalus.poller import store_entries
+from crotalus.pypi import PyPIError
 
 Conn = psycopg.Connection[TupleRow]
 
@@ -21,6 +23,13 @@ def count(db: Conn, table: str) -> int:
     row = db.execute(f"SELECT count(*) FROM {table}").fetchone()
     assert row is not None
     return int(row[0])
+
+
+def runs(db: Conn) -> list[tuple[object, ...]]:
+    return db.execute("SELECT entries, new_releases, error FROM ingest_runs ORDER BY id").fetchall()
+
+
+# store_entries
 
 
 def test_stores_new_entries(db: Conn) -> None:
@@ -54,3 +63,23 @@ def test_bad_entry_stores_nothing(db: Conn) -> None:
         store_entries(db, [ENTRIES[0], bad])
     # One transaction: the valid entry before the bad one was rolled back too.
     assert count(db, "releases") == 0
+
+
+# poll_once
+
+
+def test_successful_poll_records_run(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(poller, "fetch_feed", lambda: ENTRIES)
+    poller.poll_once()
+    poller.poll_once()
+    # Second poll sees the same three entries, none new.
+    assert runs(db) == [(3, 3, None), (3, 0, None)]
+
+
+def test_skipped_poll_records_error(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken() -> list[FeedEntry]:
+        raise PyPIError("malformed feed: mismatched tag")
+
+    monkeypatch.setattr(poller, "fetch_feed", broken)
+    poller.poll_once()
+    assert runs(db) == [(None, None, "malformed feed: mismatched tag")]

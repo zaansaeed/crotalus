@@ -2,8 +2,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from crotalus.analyze.rules.new_package import check
 from crotalus.models import AnalysisContext, Finding, PackageInfo, Release, ReleaseMetadata
+from crotalus.rules.new_package import check
 
 UPLOADED = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
 

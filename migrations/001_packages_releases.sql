@@ -26,7 +26,7 @@
 CREATE TABLE packages (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, -- PK
     -- PEP 503 normalized: lowercase alphanumeric chunks joined by single '-'.
-    -- Must stay in sync with normalize_name() in rss_ingestor.py.
+    -- Must stay in sync with normalize_name() in pypi.py.
     name TEXT NOT NULL UNIQUE
         CONSTRAINT packages_name_normalized CHECK (name ~ '^[a-z0-9]+(-[a-z0-9]+)*$'), --start with <char/nums> (-<char/nums>) any num times.
                                                                                        --basically, must be PEP normalized.

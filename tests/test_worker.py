@@ -4,13 +4,12 @@ import psycopg
 import pytest
 from psycopg.rows import TupleRow
 
-from crotalus.analyze import worker
-from crotalus.models import Finding, Release, ReleaseMetadata
-from crotalus.analyze.worker import claim_release, process_one
-from crotalus.database.connect_db import connect
-from crotalus.ingest.ingest_storer import store_entries
-from crotalus.ingest.rss_ingestor import FeedEntry
-from crotalus.pypi.client import PyPIUnavailable, ReleaseNotFound
+from crotalus import worker
+from crotalus.db import connect
+from crotalus.models import AnalysisContext, FeedEntry, Finding, ReleaseMetadata
+from crotalus.poller import store_entries
+from crotalus.pypi import PyPIUnavailable, ReleaseNotFound
+from crotalus.worker import claim_release, process_one
 
 Conn = psycopg.Connection[TupleRow]
 
@@ -27,9 +26,10 @@ FINDING = Finding(
 def no_rules(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test the worker's plumbing, not the real rules or PyPI (they have their own tests)."""
     monkeypatch.setattr(worker, "RULES", [])
-    monkeypatch.setattr(
-        worker, "fetch_metadata", lambda name, version: ReleaseMetadata(name=name, version=version)
-    )
+    def fetch_metadata(name: str, version: str) -> ReleaseMetadata:
+        return ReleaseMetadata(name=name, version=version)
+
+    monkeypatch.setattr(worker, "fetch_metadata", fetch_metadata)
     monkeypatch.setattr(worker, "fetch_first_upload", lambda name: WHEN)
 
 
@@ -80,7 +80,7 @@ def test_oldest_release_first(db: Conn) -> None:
 
 
 def test_stores_findings(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(worker, "analyze", lambda release: [FINDING])
+    monkeypatch.setattr(worker, "RULES", [lambda context: [FINDING]])
     add_release(db, "reqeusts")
     process_one(db)
     row = db.execute("SELECT rule_id, severity, message, evidence FROM findings").fetchone()
@@ -89,7 +89,7 @@ def test_stores_findings(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_reanalysis_replaces_findings(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(worker, "analyze", lambda release: [FINDING])
+    monkeypatch.setattr(worker, "RULES", [lambda context: [FINDING]])
     add_release(db, "reqeusts")
     process_one(db)
     # Re-queue it. A pending release can't keep its old verdict (releases_verdict_iff_done).
@@ -100,10 +100,10 @@ def test_reanalysis_replaces_findings(db: Conn, monkeypatch: pytest.MonkeyPatch)
 
 
 def test_analysis_error_marks_failed(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
-    def broken(release: Release) -> list[Finding]:
-        raise ValueError("bad archive")
+    def broken(context: AnalysisContext) -> list[Finding]:
+        raise ValueError("bad archive")  # e.g. a bug in a rule
 
-    monkeypatch.setattr(worker, "analyze", broken)
+    monkeypatch.setattr(worker, "RULES", [broken])
     add_release(db, "requests")
     assert process_one(db) is True
     assert status_of(db, "requests") == "failed"
@@ -115,10 +115,10 @@ def test_failed_reanalysis_clears_verdict(db: Conn, monkeypatch: pytest.MonkeyPa
     process_one(db)
     assert verdict_of(db, "requests") == (0, "clean")
 
-    def broken(release: Release) -> list[Finding]:
-        raise ValueError("bad archive")
+    def broken(context: AnalysisContext) -> list[Finding]:
+        raise ValueError("bad archive")  # e.g. a bug in a rule
 
-    monkeypatch.setattr(worker, "analyze", broken)
+    monkeypatch.setattr(worker, "RULES", [broken])
     db.execute("UPDATE releases SET status = 'pending', score = NULL, verdict = NULL")
     process_one(db)
     assert status_of(db, "requests") == "failed"
@@ -143,21 +143,6 @@ def test_release_not_on_pypi_marks_failed(db: Conn, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(worker, "fetch_metadata", not_found)
     add_release(db, "requests")
     assert process_one(db) is True
-    assert status_of(db, "requests") == "failed"
-    assert verdict_of(db, "requests") == (None, None)
-
-
-def test_failed_reanalysis_clears_verdict(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
-    add_release(db, "requests")
-    process_one(db)
-    assert verdict_of(db, "requests") == (0, "clean")
-
-    def broken(release: Release) -> list[Finding]:
-        raise ValueError("bad archive")
-
-    monkeypatch.setattr(worker, "analyze", broken)
-    db.execute("UPDATE releases SET status = 'pending', score = NULL, verdict = NULL")
-    process_one(db)
     assert status_of(db, "requests") == "failed"
     assert verdict_of(db, "requests") == (None, None)
 
