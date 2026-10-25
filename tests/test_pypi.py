@@ -1,5 +1,6 @@
 """Tests for crotalus.pypi. PyPI is faked with `fake_pypi` (see conftest.py)."""
 
+import hashlib
 import json
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -9,11 +10,12 @@ from typing import Any
 import httpx
 import pytest
 
-from crotalus.models import FeedEntry
+from crotalus.models import FeedEntry, ReleaseFile
 from crotalus.pypi import (
     PyPIError,
     PyPIUnavailable,
     ReleaseNotFound,
+    download,
     fetch_feed,
     fetch_first_upload,
     fetch_metadata,
@@ -224,3 +226,42 @@ def test_first_upload_unexpected_shape(fake_pypi: FakePyPI) -> None:
     fake_pypi(answer_json({"releases": {"1.0": [{}]}}))
     with pytest.raises(PyPIError):
         fetch_first_upload("examplepkg")
+
+
+# download
+
+
+def file_for(data: bytes) -> ReleaseFile:
+    return ReleaseFile(
+        filename="pkg-1.0.tar.gz",
+        url="https://files.pythonhosted.org/packages/pkg-1.0.tar.gz",
+        packagetype="sdist",
+        size=len(data),
+        sha256=hashlib.sha256(data).hexdigest(),
+        uploaded_at=datetime(2026, 10, 17, tzinfo=timezone.utc),
+    )
+
+
+def test_download(fake_pypi: FakePyPI) -> None:
+    fake_pypi(lambda request: httpx.Response(200, content=b"archive bytes"))
+    assert download(file_for(b"archive bytes"), max_bytes=1000) == b"archive bytes"
+
+
+def test_download_hash_mismatch(fake_pypi: FakePyPI) -> None:
+    fake_pypi(lambda request: httpx.Response(200, content=b"tampered bytes"))
+    with pytest.raises(PyPIError, match="sha256"):
+        download(file_for(b"archive bytes"), max_bytes=1000)
+
+
+def test_download_stops_past_the_limit(fake_pypi: FakePyPI) -> None:
+    # The size PyPI listed doesn't matter: the limit is enforced on what arrives.
+    fake_pypi(lambda request: httpx.Response(200, content=b"x" * 2000))
+    with pytest.raises(PyPIError, match="larger than"):
+        download(file_for(b"small"), max_bytes=1000)
+
+
+@pytest.mark.parametrize(("code", "error"), [(404, ReleaseNotFound), (503, PyPIUnavailable)])
+def test_download_http_errors(fake_pypi: FakePyPI, code: int, error: type[Exception]) -> None:
+    fake_pypi(lambda request: httpx.Response(code))
+    with pytest.raises(error):
+        download(file_for(b"x"), max_bytes=1000)

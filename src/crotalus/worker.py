@@ -26,7 +26,7 @@ import psycopg
 from psycopg.rows import TupleRow
 from psycopg.types.json import Jsonb
 
-from crotalus import scoring
+from crotalus import archive, scoring
 from crotalus.db import connect
 from crotalus.models import AnalysisContext, Finding, PackageInfo, Release
 from crotalus.pypi import PyPIUnavailable, fetch_first_upload, fetch_metadata
@@ -60,8 +60,9 @@ def claim_release(conn: psycopg.Connection[TupleRow]) -> Release | None:
 
 
 def build_context(conn: psycopg.Connection[TupleRow], release: Release) -> AnalysisContext:
-    """Gather everything the rules look at: the release's PyPI metadata, plus package
-    history (the time this package was created)."""
+    """Gather everything the rules look at: the release's PyPI metadata, package
+    history (the time this package was created), and the source code of its sdist
+    and one wheel."""
     # The release first: if it's gone from PyPI, don't bother with the package history.
     metadata = fetch_metadata(release.name, release.version)
 
@@ -78,10 +79,16 @@ def build_context(conn: psycopg.Connection[TupleRow], release: Release) -> Analy
             (first_uploaded_at, release.name),
         )
 
+    # The code itself: the sdist and one wheel, read in memory (see archive.py).
+    # Each is a ReleaseFile, or None if there's no such file (or it's too big).
+    sdist_file, wheel_file = archive.choose_files(metadata.files)
+
     return AnalysisContext(
         release=release,
         metadata=metadata,
         package=PackageInfo(first_uploaded_at=first_uploaded_at),
+        sdist=archive.load(sdist_file),
+        wheel=archive.load(wheel_file),
     )
 
 

@@ -64,13 +64,27 @@ class PackageInfo:
     first_uploaded_at: datetime | None = None  # the package's first file on PyPI; its age
 
 
+# The source files read out of one downloaded archive (an sdist or a wheel).
+@dataclass(frozen=True)
+class ArchiveContents:
+    filename: str  # e.g. "pkg-1.0.tar.gz"
+    # Path inside the archive -> text, for the files rules read (.py, .pth,
+    # pyproject.toml). An sdist's top folder ("pkg-1.0/") is dropped, so its
+    # setup.py is just "setup.py". Paths are as the archive gives them: a hostile
+    # one like "../../evil.py" is kept as-is (and never written anywhere).
+    files: dict[str, str] = field(default_factory=dict)
+
+
 # Everything the rules get to look at for one release. Grows as rules need more
-# (downloaded files, the previous version's diff, ...). will be helpful for agents
+# (the previous version's diff, ...). will be helpful for agents
 @dataclass(frozen=True)
 class AnalysisContext:
     release: Release
     metadata: ReleaseMetadata
     package: PackageInfo
+    # None when the release has no such file, or it was too big to download.
+    sdist: ArchiveContents | None = None
+    wheel: ArchiveContents | None = None
 
 
 # Finding for one release.

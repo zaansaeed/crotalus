@@ -32,7 +32,8 @@ def score(findings: list[Finding]) -> int:
     worst: dict[str, int] = {}  # rule_id -> its highest weight
     for finding in findings:
         weight = SEVERITY_WEIGHTS[finding.severity]
-        worst[finding.rule_id] = max(worst.get(finding.rule_id, 0), weight) # sum the worst severity of a broken rule once.
+        # Keep each rule's worst severity, so a rule counts once in the sum.
+        worst[finding.rule_id] = max(worst.get(finding.rule_id, 0), weight)
     return sum(worst.values())
 
 

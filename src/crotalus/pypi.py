@@ -3,10 +3,9 @@
 - fetch_feed():                the RSS feed of the latest ~100 uploads (the poller)
 - fetch_metadata(name, ver):   one release's info and files (the worker, every release)
 - fetch_first_upload(name):    when the project first appeared (the worker, once per package)
+- download(file, max_bytes):   one of a release's files, as bytes (the worker)
 
-All requests go through one module-level `client`, which reuses connections
-instead of opening a new one (and a new TLS handshake) per request. Tests replace
-it with a fake one (see tests/conftest.py), so they never reach the network.
+All requests go through the shared client in crotalus.http_client.
 
 Errors:
 - ReleaseNotFound: the project or version isn't on PyPI. Either it was removed
@@ -17,6 +16,7 @@ Errors:
 
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -24,31 +24,12 @@ from urllib.parse import quote
 import feedparser
 import httpx
 
-from crotalus import __version__
+from crotalus import http_client
 from crotalus.models import FeedEntry, ReleaseFile, ReleaseMetadata
 
 RSS_URL = "https://pypi.org/rss/updates.xml"
 RELEASE_URL = "https://pypi.org/pypi/{name}/{version}/json"  # one version, small
 PROJECT_URL = "https://pypi.org/pypi/{name}/json"  # every version, can be several MB
-
-# PyPI asks API clients to identify themselves.
-USER_AGENT = f"crotalus/{__version__} (+https://github.com/zaansaeed/crotalus)"
-
-
-def make_client(transport: httpx.BaseTransport | None = None) -> httpx.Client:
-    """`transport` is for tests: an httpx.MockTransport answers without a network."""
-    return httpx.Client(
-        headers={"User-Agent": USER_AGENT},
-        # connect: reaching the server. read: the gap between chunks of a response,
-        # so a slow download is fine as long as data keeps coming.
-        timeout=httpx.Timeout(10.0, connect=5.0),
-        # PyPI redirects non-canonical project names to the canonical URL.
-        follow_redirects=True,
-        transport=transport,
-    )
-
-
-client = make_client()
 
 
 class PyPIError(Exception):
@@ -72,16 +53,8 @@ def normalize_name(name: str) -> str:
     return _NAME_SEPARATORS.sub("-", name).lower()
 
 
-def _get(url: str, label: str) -> httpx.Response:
-    """GET from PyPI, turning failures into our errors. `label` is for error messages."""
-    try:
-        response = client.get(url)
-    # error handling
-    except httpx.TransportError as exc:  # timeouts, connection failures, ...
-        raise PyPIUnavailable(f"could not reach PyPI for {label}: {exc!r}") from exc
-    except httpx.HTTPError as exc:  # anything else httpx raises, e.g. too many redirects
-        raise PyPIError(f"request to PyPI failed for {label}: {exc!r}") from exc
-
+def _check_status(response: httpx.Response, label: str) -> None:
+    """Raise our error for anything but 200. `label` is for error messages."""
     status = response.status_code
     if status == 404:
         raise ReleaseNotFound(f"{label} is not on PyPI")
@@ -89,6 +62,18 @@ def _get(url: str, label: str) -> httpx.Response:
         raise PyPIUnavailable(f"PyPI returned {status} for {label}")
     if status != 200:
         raise PyPIError(f"PyPI returned {status} for {label}")
+
+
+def _get(url: str, label: str) -> httpx.Response:
+    """GET from PyPI, turning failures into our errors. `label` is for error messages."""
+    try:
+        response = http_client.client.get(url)
+    # error handling
+    except httpx.TransportError as exc:  # timeouts, connection failures, ...
+        raise PyPIUnavailable(f"could not reach PyPI for {label}: {exc!r}") from exc
+    except httpx.HTTPError as exc:  # anything else httpx raises, e.g. too many redirects
+        raise PyPIError(f"request to PyPI failed for {label}: {exc!r}") from exc
+    _check_status(response, label)
     return response
 
 
@@ -191,3 +176,36 @@ def fetch_first_upload(name: str) -> datetime | None:
         )
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise PyPIError(f"unexpected response from PyPI for {name}: {exc!r}") from exc
+
+
+def download(file: ReleaseFile, max_bytes: int) -> bytes:
+    """Download one of a release's files into memory and check it against its sha256.
+
+    Called once per file the worker inspects: up to twice per release (the sdist
+    and one wheel).
+
+    The file comes from whoever published the release, so trust nothing about it:
+    the size is enforced while reading (stop past `max_bytes`, whatever PyPI said it
+    was), and the bytes must hash to what PyPI listed.
+    """
+    label = file.filename
+    chunks: list[bytes] = []
+    received = 0
+    digest = hashlib.sha256()
+    try:
+        with http_client.client.stream("GET", file.url) as response:
+            _check_status(response, label)
+            for chunk in response.iter_bytes():
+                received += len(chunk)
+                if received > max_bytes:
+                    raise PyPIError(f"{label} is larger than {max_bytes} bytes")
+                digest.update(chunk)
+                chunks.append(chunk)
+    except httpx.TransportError as exc:
+        raise PyPIUnavailable(f"could not download {label}: {exc!r}") from exc
+    except httpx.HTTPError as exc:
+        raise PyPIError(f"download failed for {label}: {exc!r}") from exc
+
+    if digest.hexdigest() != file.sha256:
+        raise PyPIError(f"{label} does not match its sha256")
+    return b"".join(chunks)  # join all chunks of the binary data

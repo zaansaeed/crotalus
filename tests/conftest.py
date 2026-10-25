@@ -4,8 +4,8 @@ Database tests use a separate `crotalus_test` database on the same server as
 `DATABASE_URL`, rebuilt from the migrations at the start of each test run.
 They are skipped when Postgres isn't reachable.
 
-No test reaches the network: PyPI's client is replaced for every test. A test that
-needs PyPI to answer uses the `fake_pypi` fixture to say how.
+No test reaches the network: the shared HTTP client is replaced for every test.
+A test that needs PyPI to answer uses the `fake_pypi` fixture to say how.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from psycopg.conninfo import make_conninfo
 from psycopg.rows import TupleRow
 
 from crotalus import db as crotalus_db
-from crotalus import pypi
+from crotalus import http_client
 
 # Answers one request, in place of PyPI.
 Handler = Callable[[httpx.Request], httpx.Response]
@@ -78,7 +78,8 @@ def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
         pytest.fail(f"test tried to reach the network: {request.url}")
 
-    monkeypatch.setattr(pypi, "client", pypi.make_client(httpx.MockTransport(refuse)))
+    fake = http_client.make_client(httpx.MockTransport(refuse))
+    monkeypatch.setattr(http_client, "client", fake)
 
 
 @pytest.fixture
@@ -86,6 +87,7 @@ def fake_pypi(monkeypatch: pytest.MonkeyPatch) -> Callable[[Handler], None]:
     """Make PyPI answer with `handler`, e.g. fake_pypi(lambda request: httpx.Response(404))."""
 
     def install(handler: Handler) -> None:
-        monkeypatch.setattr(pypi, "client", pypi.make_client(httpx.MockTransport(handler)))
+        fake = http_client.make_client(httpx.MockTransport(handler))
+        monkeypatch.setattr(http_client, "client", fake)
 
     return install
