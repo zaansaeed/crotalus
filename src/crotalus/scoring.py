@@ -32,7 +32,7 @@ LIKELY_MALICIOUS_AT = 10
 # How sure the LLM must say it is before its "benign" clears a suspicious release.
 # The model reports this itself and isn't calibrated, so it's a bar against
 # half-hearted answers, not a probability. A starting guess, like the weights.
-CLEAR_AT_CONFIDENCE = 0.8
+CLEAR_AT_CONFIDENCE = 0.9
 
 
 def score(findings: list[Finding]) -> int:
