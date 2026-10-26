@@ -87,6 +87,31 @@ def test_origins_follow_variables() -> None:
     assert py_file.origins["c"] == {"base64.b64decode", "zlib.decompress"}
 
 
+def test_origins_follow_unpacking() -> None:
+    py_file = read("import base64\na, (b, *c) = base64.b64decode(x)")
+    assert py_file is not None
+    assert {"a", "b", "c"} <= py_file.origins.keys()
+
+
+def test_attribute_assignment_does_not_taint_object() -> None:
+    # Like fused's header.py: `self.x = downloaded` used to taint all of `self`.
+    source = textwrap.dedent(
+        """
+        import requests
+        class Header:
+            def load(self, url):
+                self.source_code = requests.get(url).text
+                self.cache[url] = requests.get(url).text
+            def run(self):
+                exec(compile(self.other_code, "x", "exec"), self.namespace)
+        """
+    )
+    py_file = read(source)
+    assert py_file is not None
+    assert "self" not in py_file.origins and "url" not in py_file.origins
+    assert hidden_code_exec.check(context(wheel={"pkg/header.py": source})) == []
+
+
 def test_invalid_python_is_skipped() -> None:
     assert read("print 'python 2'") is None
     assert read("\0") is None

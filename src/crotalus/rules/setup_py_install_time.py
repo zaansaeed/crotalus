@@ -64,6 +64,7 @@ def check(context: AnalysisContext) -> list[Finding]:
             severity="critical" if process_calls and network_calls else "high",
             message=f"setup.py {' and '.join(kinds)} at install time",
             evidence={
+                "archive": "sdist",
                 "file": "setup.py",
                 "process_calls": sorted(process_calls),
                 "network_calls": sorted(network_calls),

@@ -16,6 +16,9 @@ Severity = Literal["low", "medium", "high", "critical"]
 # Matches the CHECK on releases.verdict.
 Verdict = Literal["clean", "suspicious", "likely_malicious"]
 
+# The LLM's call on a flagged release (see triage.py).
+TriageVerdict = Literal["benign", "suspicious", "malicious"]
+
 
 # One item of PyPI's RSS feed: a release the poller should store.
 @dataclass(frozen=True)
@@ -106,3 +109,15 @@ class Finding:
     severity: Severity
     message: str  # one line for humans
     evidence: dict[str, Any] = field(default_factory=dict)  # stored as jsonb
+
+
+# The LLM's second opinion on a release the rules flagged. Kept next to the rules'
+# verdict, never in place of it, so the two can be compared.
+@dataclass(frozen=True)
+class TriageResult:
+    verdict: TriageVerdict
+    confidence: float  # 0 to 1
+    reasoning: str  # a few sentences for humans
+    false_positive_rules: tuple[str, ...]  # rule_ids the LLM thinks are honest code
+    model: str  # e.g. "gemini-flash-lite-latest"
+    prompt_version: str  # which prompt produced this; bump it when the prompt changes

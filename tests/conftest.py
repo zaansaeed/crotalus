@@ -68,7 +68,7 @@ def db(
     with crotalus_db.connect() as conn:
         conn.autocommit = True
         yield conn
-        conn.execute("TRUNCATE packages, releases, ingest_runs, findings RESTART IDENTITY")
+        conn.execute("TRUNCATE packages, releases, ingest_runs, findings, triage RESTART IDENTITY")
 
 
 @pytest.fixture(autouse=True)

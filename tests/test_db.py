@@ -74,3 +74,47 @@ def test_rejects_unknown_verdict(db: Conn) -> None:
     with pytest.raises(psycopg.errors.CheckViolation):
         db.execute("UPDATE releases SET status = 'done', score = 0, verdict = 'probably_fine'")
 
+
+
+def add_triage(db: Conn, status: str, verdict: str | None, error: str | None = None) -> None:
+    add_release(db, add_package(db, "requests"), "2.31.0")
+    db.execute(
+        "INSERT INTO triage (release_id, model, prompt_version, status, verdict, confidence,"
+        " reasoning, error) VALUES (1, 'm', 'v1', %s, %s, %s, %s, %s)",
+        (status, verdict, 0.9 if verdict else None, "why" if verdict else None, error),
+    )
+
+
+def test_triage_done_and_failed(db: Conn) -> None:
+    add_triage(db, "done", "benign")
+    db.execute(
+        "INSERT INTO triage (release_id, model, prompt_version, status, error)"
+        " VALUES (1, 'm', 'v2', 'failed', 'answer is not JSON')"
+    )
+    rows = db.execute("SELECT prompt_version, status FROM triage ORDER BY id").fetchall()
+    assert rows == [("v1", "done"), ("v2", "failed")]
+
+
+@pytest.mark.parametrize(
+    ("status", "verdict", "error"),
+    [
+        ("done", None, None),  # done without an answer
+        ("failed", None, None),  # failed without an error
+        ("done", "benign", "oops"),  # done with an error
+        ("done", "safe", None),  # unknown verdict
+    ],
+)
+def test_triage_rejects_inconsistent_rows(
+    db: Conn, status: str, verdict: str | None, error: str | None
+) -> None:
+    with pytest.raises(psycopg.errors.CheckViolation):
+        add_triage(db, status, verdict, error)
+
+
+def test_triage_once_per_model_and_prompt(db: Conn) -> None:
+    add_triage(db, "done", "benign")
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        db.execute(
+            "INSERT INTO triage (release_id, model, prompt_version, status, verdict,"
+            " confidence, reasoning) VALUES (1, 'm', 'v1', 'done', 'malicious', 1, 'x')"
+        )

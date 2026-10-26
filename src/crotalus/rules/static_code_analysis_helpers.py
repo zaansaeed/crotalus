@@ -159,13 +159,25 @@ def read(source: str) -> PyFile | None:
             # downloaded data. Checked for every assignment, so it carries through copies.
             value_origins = origins(node.value, py_file)
             if value_origins:
-                # every name assigned to, including in `a, b = ...`
                 for assign_target in node.targets:
-                    for target_node in ast.walk(assign_target):
-                        if isinstance(target_node, ast.Name):
-                            variable = target_node.id
-                            py_file.origins.setdefault(variable, set()).update(value_origins)
+                    for variable in _assigned_names(assign_target):
+                        py_file.origins.setdefault(variable, set()).update(value_origins)
     return py_file
+
+
+def _assigned_names(target: ast.expr) -> Iterator[str]:
+    """The variables an assignment sets: `x = ...` and `a, *b = ...`.
+
+    Not the names inside `self.x = ...` or `d[k] = ...`: those change an attribute
+    or item, and tainting all of `self` would flag every later use of it.
+    """
+    if isinstance(target, ast.Name):
+        yield target.id
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for element in target.elts:
+            yield from _assigned_names(element)
+    elif isinstance(target, ast.Starred):
+        yield from _assigned_names(target.value)
 
 
 def full_name(func: ast.expr, aliases: dict[str, str]) -> str | None:
