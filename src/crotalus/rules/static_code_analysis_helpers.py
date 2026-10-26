@@ -42,9 +42,8 @@ from __future__ import annotations
 import ast
 import warnings
 from collections.abc import Iterator
-from dataclasses import dataclass
 
-from crotalus.models import AnalysisContext
+from crotalus.models import AnalysisContext, PyFile
 
 # --- Groups of dangerous names, as full_name resolves them -------------------------
 
@@ -111,16 +110,6 @@ def is_process(name: str) -> bool:
 
 
 # --- Reading code ------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class PyFile:
-    """One Python file, parsed, with what its names mean."""
-
-    source: str
-    tree: ast.Module
-    aliases: dict[str, str]  # local name -> full name: "b" -> "base64", "e" -> "exec"
-    origins: dict[str, set[str]]  # variable -> decoder/network calls its value came from
 
 
 def read(source: str) -> PyFile | None:

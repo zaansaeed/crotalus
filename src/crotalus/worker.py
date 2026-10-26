@@ -145,6 +145,8 @@ def process_one(conn: psycopg.Connection[TupleRow]) -> bool:
                 (score, verdict, release.id),
             )
             print(f"{release.name} {release.version}: {verdict} (score {score})")
+            print(next((finding.evidence for finding in findings if finding.severity == "high"), None))
+
     return True
 
 

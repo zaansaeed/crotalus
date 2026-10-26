@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
@@ -68,11 +69,22 @@ class PackageInfo:
 @dataclass(frozen=True)
 class ArchiveContents:
     filename: str  # e.g. "pkg-1.0.tar.gz"
+    
     # Path inside the archive -> text, for the files rules read (.py, .pth,
     # pyproject.toml). An sdist's top folder ("pkg-1.0/") is dropped, so its
     # setup.py is just "setup.py". Paths are as the archive gives them: a hostile
     # one like "../../evil.py" is kept as-is (and never written anywhere).
     files: dict[str, str] = field(default_factory=dict)
+
+
+# One Python file from an archive, parsed, with what its names mean. Made by
+# rules/static_code_analysis_helpers.read for the code rules.
+@dataclass(frozen=True)
+class PyFile:
+    source: str
+    tree: ast.Module
+    aliases: dict[str, str]  # local name -> full name: "b" -> "base64", "e" -> "exec"
+    origins: dict[str, set[str]]  # variable -> decoder/network calls its value came from
 
 
 # Everything the rules get to look at for one release. Grows as rules need more

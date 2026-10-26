@@ -17,6 +17,7 @@ from crotalus.rules import (
     no_project_links,
     pth_import_running_code,
     sdist_only,
+    setup_py_install_time,
     suspicious_links,
     typosquat,
 )
@@ -34,4 +35,5 @@ RULES: list[Rule] = [
     # Code rules: read the sdist's and wheel's source (see static_code_analysis_helpers.py).
     hidden_code_exec.check,
     pth_import_running_code.check,
+    setup_py_install_time.check,
 ]
