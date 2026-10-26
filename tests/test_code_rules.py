@@ -1,4 +1,4 @@
-"""Tests for the code helper (rules/_code.py) and the rules that read code."""
+"""Tests for static_code_analysis_helpers.py and the rules that read code."""
 
 import textwrap
 
@@ -13,7 +13,7 @@ from crotalus.models import (
     ReleaseMetadata,
 )
 from crotalus.rules import hidden_code_exec, pth_import_running_code
-from crotalus.rules._code import calls, read
+from crotalus.rules.static_code_analysis_helpers import calls, read
 
 
 def call_names(source: str) -> list[str | None]:
@@ -47,7 +47,7 @@ def rule_ids(findings: list[Finding]) -> list[str]:
     return [f.rule_id for f in findings]
 
 
-# _code: resolving names
+# static_code_analysis_helpers: resolving names
 
 
 @pytest.mark.parametrize(

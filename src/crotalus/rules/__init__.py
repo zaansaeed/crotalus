@@ -31,7 +31,7 @@ RULES: list[Rule] = [
     late_file_upload.check,
     suspicious_links.check,
     new_package.check,
-    # Code rules: read the sdist's and wheel's source (see _code.py).
+    # Code rules: read the sdist's and wheel's source (see static_code_analysis_helpers.py).
     hidden_code_exec.check,
     pth_import_running_code.check,
 ]

@@ -9,11 +9,29 @@ those names against the groups below.
 `read` also tracks where values come from: after `data = zlib.decompress(blob)`,
 `data` is known to hold decoded data, so `exec(data)` is caught too.
 
-A rule reads each file once and passes the result to the other helpers:
+The flow, for `import base64 as b; data = b.b64decode(x); exec(data)`:
 
-    py_file = read(source)                          # None if it isn't valid Python 3
-    for call_name, call_node in calls(py_file):     # every call, with its full name
-        origins(call_node.args[0], py_file)         # decoder / network calls a value came from
+    python_files(context)                → each .py file: ("wheel", "pkg/setup.py", source)
+    read(source)                         → PyFile (None if it isn't valid Python 3):
+        .tree                            →   the parsed code
+        .aliases                         →   {"b": "base64"}
+        .origins                         →   {"data": {"base64.b64decode"}}
+    calls(py_file)                       → every call with its full name; keep exec/eval/compile
+    origins(call_node.args[0], py_file)  → {"base64.b64decode"} → a decoder → critical finding 
+        get the origin (or the full value) of what this exec/eval calls. is it a decoder or network call? -> critical finding
+    snippet(py_file, call_node)          → "exec(data)" for the evidence
+
+Each file is read once; the other helpers take the PyFile.
+
+Aliases and origins both come from assignments; the difference is the function
+itself vs what it returns (`f` vs `f()`):
+
+    e = exec               # names a function -> alias:  e is exec
+    data = b.b64decode(x)  # calls a function -> origin: data holds what b64decode returned
+
+Imports make aliases too (`import base64 as b`: b is base64). Aliases name the
+function being called, so `e(...)` is recognised as exec; origins say what's passed
+into it, so `exec(data)` is known to run decoded data.
 
 This is static analysis: names built at runtime (`getattr(builtins, "ex" + "ec")`)
 can't be resolved, and come back as None.

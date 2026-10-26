@@ -20,7 +20,14 @@ and only files installed to its top level are read there.
 from __future__ import annotations
 
 from crotalus.models import AnalysisContext, Finding
-from crotalus.rules._code import DECODERS, RUN_CODE, calls, is_network, is_process, read
+from crotalus.rules.static_code_analysis_helpers import (
+    DECODERS,
+    RUN_CODE,
+    calls,
+    is_network,
+    is_process,
+    read,
+)
 
 
 def _installs_to_site_packages(path: str) -> bool:
