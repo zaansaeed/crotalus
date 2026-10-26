@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import quote
 
 import feedparser
@@ -106,7 +106,7 @@ def fetch_feed() -> list[FeedEntry]:
 
             # published_parsed is a UTC with no tzinfo; attach UTC explicitly via tzinfo.
             # otherwise, without UTC, changes to current location tz.
-            published_at = datetime(*item.published_parsed[:6]).replace(tzinfo=timezone.utc)
+            published_at = datetime(*item.published_parsed[:6]).replace(tzinfo=UTC)
             entries.append(
                 FeedEntry(
                     name=normalize_name(parts[0]),

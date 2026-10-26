@@ -1,4 +1,5 @@
 """The crotalus Postgres database: opening connections and applying migrations.
+(The queries themselves are in queries.py.)
 
 The connection string comes from the `DATABASE_URL` environment variable. For
 local development it can be set in a `.env` file at the repo root; on other
@@ -23,8 +24,12 @@ from psycopg.rows import TupleRow
 # This file is src/crotalus/db.py, so parents[2] is the repo root.
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 
+# A connection whose rows come back as plain tuples. Used in every signature that
+# takes a connection, so they all read the same.
+Connection = psycopg.Connection[TupleRow]
 
-def connect() -> psycopg.Connection[TupleRow]:
+
+def connect() -> Connection:
     """Return a new connection to the database named by `DATABASE_URL`.
     Rows are tuples.
     """
@@ -47,7 +52,7 @@ def migration_files() -> list[Path]:
     return sorted(MIGRATIONS_DIR.glob("*.sql"))
 
 
-def applied_migrations(conn: psycopg.Connection[TupleRow]) -> set[str]:
+def applied_migrations(conn: Connection) -> set[str]:
     """Names of the migrations already applied, e.g. {"001_packages_releases"}."""
     return {row[0] for row in conn.execute("SELECT name FROM applied_schema_migrations")}
 

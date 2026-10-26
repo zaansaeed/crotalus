@@ -3,7 +3,7 @@
 import hashlib
 import json
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -64,13 +64,13 @@ def test_feed_entries(fake_pypi: FakePyPI) -> None:
         FeedEntry(
             name="requests",
             version="2.31.0",
-            published_at=datetime(2026, 10, 17, 4, 33, 56, tzinfo=timezone.utc),
+            published_at=datetime(2026, 10, 17, 4, 33, 56, tzinfo=UTC),
             source="rss",
         ),
         FeedEntry(
             name="x5-browser-tools",
             version="1.6.0",
-            published_at=datetime(2026, 10, 17, 4, 33, 8, tzinfo=timezone.utc),
+            published_at=datetime(2026, 10, 17, 4, 33, 8, tzinfo=UTC),
             source="rss",
         ),
     ]  # the fixture's malformed items (no date, no version, extra words, no title) skipped
@@ -102,7 +102,7 @@ def test_parses_release(fake_pypi: FakePyPI, release_json: Any) -> None:
     assert meta.files[1].packagetype == "sdist"
     assert meta.files[1].sha256 == "11" * 32
     # The sdist (12:00) was uploaded before the wheel (12:05).
-    assert meta.uploaded_at == datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc)
+    assert meta.uploaded_at == datetime(2024, 6, 1, 12, 0, tzinfo=UTC)
 
 
 def test_empty_strings_become_none(fake_pypi: FakePyPI, release_json: Any) -> None:
@@ -213,7 +213,7 @@ def test_first_upload_across_versions(fake_pypi: FakePyPI) -> None:
         return httpx.Response(200, json=project)
 
     fake_pypi(answer)
-    assert fetch_first_upload("examplepkg") == datetime(2024, 1, 1, 10, 0, tzinfo=timezone.utc)
+    assert fetch_first_upload("examplepkg") == datetime(2024, 1, 1, 10, 0, tzinfo=UTC)
     assert str(seen[0].url) == "https://pypi.org/pypi/examplepkg/json"
 
 
@@ -238,7 +238,7 @@ def file_for(data: bytes) -> ReleaseFile:
         packagetype="sdist",
         size=len(data),
         sha256=hashlib.sha256(data).hexdigest(),
-        uploaded_at=datetime(2026, 10, 17, tzinfo=timezone.utc),
+        uploaded_at=datetime(2026, 10, 17, tzinfo=UTC),
     )
 
 

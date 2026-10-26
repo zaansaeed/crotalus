@@ -10,16 +10,16 @@ import stat
 import tarfile
 import zipfile
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import pytest
 
 from crotalus import archive
-from crotalus.archive import ArchiveError, choose_files, load, read_members
+from crotalus.archive import ArchiveError, choose_files_to_inspect, download_and_read, read_members
 from crotalus.models import ReleaseFile
 
-T0 = datetime(2026, 10, 17, tzinfo=timezone.utc)
+T0 = datetime(2026, 10, 17, tzinfo=UTC)
 MB = 1024 * 1024
 
 FakePyPI = Callable[[Callable[[httpx.Request], httpx.Response]], None]
@@ -62,7 +62,7 @@ def make_zip(files: dict[str, bytes], symlinks: dict[str, str] | None = None) ->
     return buffer.getvalue()
 
 
-# choose_files
+# choose_files_to_inspect
 
 
 SDIST = release_file("pkg-1.0.tar.gz")
@@ -88,19 +88,19 @@ MAC = release_file("pkg-1.0-cp313-cp313-macosx_11_0_arm64.whl")
         ((), (None, None)),
     ],
 )
-def test_choose_files(
+def test_choose_files_to_inspect(
     files: tuple[ReleaseFile, ...], expected: tuple[ReleaseFile | None, ReleaseFile | None]
 ) -> None:
-    assert choose_files(files) == expected
+    assert choose_files_to_inspect(files) == expected
 
 
 def test_too_big_files_are_skipped() -> None:
     huge = release_file("pkg-1.0.tar.gz", size=archive.MAX_DOWNLOAD_BYTES + 1)
-    assert choose_files((huge, ANY)) == (None, ANY)
+    assert choose_files_to_inspect((huge, ANY)) == (None, ANY)
 
 
 def test_invalid_wheel_name_is_skipped() -> None:
-    assert choose_files((release_file("not-a-real-wheel.whl"),)) == (None, None)
+    assert choose_files_to_inspect((release_file("not-a-real-wheel.whl"),)) == (None, None)
 
 
 # read_members: what gets read
@@ -199,18 +199,18 @@ def test_corrupt_archive(filename: str) -> None:
         read_members(filename, b"this is not an archive")
 
 
-# load: download + read
+# download_and_read
 
 
-def test_load(fake_pypi: FakePyPI) -> None:
+def test_download_and_read(fake_pypi: FakePyPI) -> None:
     data = make_zip({"pkg/__init__.py": b"x = 1\n"})
     file = release_file("pkg-1.0-py3-none-any.whl", data=data)
     fake_pypi(lambda request: httpx.Response(200, content=data))
-    contents = load(file)
+    contents = download_and_read(file)
     assert contents is not None
     assert contents.filename == file.filename
     assert contents.files == {"pkg/__init__.py": "x = 1\n"}
 
 
 def test_load_nothing() -> None:
-    assert load(None) is None
+    assert download_and_read(None) is None

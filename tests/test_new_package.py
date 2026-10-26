@@ -1,11 +1,11 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from crotalus.models import AnalysisContext, Finding, PackageInfo, Release, ReleaseMetadata
+from crotalus.models import AnalysisContext, Finding, PackageHistory, Release, ReleaseMetadata
 from crotalus.rules.new_package import check
 
-UPLOADED = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
+UPLOADED = datetime(2026, 10, 17, 12, 0, tzinfo=UTC)
 
 
 def context(age: timedelta | None, uploaded_at: datetime | None = UPLOADED) -> AnalysisContext:
@@ -14,7 +14,7 @@ def context(age: timedelta | None, uploaded_at: datetime | None = UPLOADED) -> A
     return AnalysisContext(
         release=Release(id=1, name="pkg", version="1.0"),
         metadata=ReleaseMetadata(name="pkg", version="1.0", uploaded_at=uploaded_at),
-        package=PackageInfo(first_uploaded_at=first),
+        package_history=PackageHistory(first_uploaded_at=first),
     )
 
 

@@ -17,8 +17,9 @@ The flow, for `import base64 as b; data = b.b64decode(x); exec(data)`:
         .aliases                         →   {"b": "base64"}
         .origins                         →   {"data": {"base64.b64decode"}}
     calls(py_file)                       → every call with its full name; keep exec/eval/compile
-    origins(call_node.args[0], py_file)  → {"base64.b64decode"} → a decoder → critical finding 
-        get the origin (or the full value) of what this exec/eval calls. is it a decoder or network call? -> critical finding
+    origins(call_node.args[0], py_file)  → {"base64.b64decode"} → a decoder → critical finding
+        get the origin (or the full value) of what this exec/eval calls.
+        is it a decoder or network call? -> critical finding
     snippet(py_file, call_node)          → "exec(data)" for the evidence
 
 Each file is read once; the other helpers take the PyFile.

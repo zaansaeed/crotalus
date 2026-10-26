@@ -19,7 +19,7 @@ VERY_NEW_WITHIN = timedelta(days=1)
 
 
 def check(context: AnalysisContext) -> list[Finding]:
-    first_upload = context.package.first_uploaded_at
+    first_upload = context.package_history.first_uploaded_at
     this_upload = context.metadata.uploaded_at
     if first_upload is None or this_upload is None:
         return []

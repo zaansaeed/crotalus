@@ -1,6 +1,6 @@
 import pytest
 
-from crotalus.models import AnalysisContext, Finding, PackageInfo, Release, ReleaseMetadata
+from crotalus.models import AnalysisContext, Finding, PackageHistory, Release, ReleaseMetadata
 from crotalus.rules import typosquat
 from crotalus.rules.typosquat import check, find_lookalike, levenshtein
 
@@ -12,7 +12,7 @@ def context(name: str) -> AnalysisContext:
     return AnalysisContext(
         release=Release(id=1, name=name, version="1.0"),
         metadata=ReleaseMetadata(name=name, version="1.0"),
-        package=PackageInfo(),
+        package_history=PackageHistory(),
     )
 
 

@@ -8,7 +8,7 @@ from crotalus.models import (
     AnalysisContext,
     ArchiveContents,
     Finding,
-    PackageInfo,
+    PackageHistory,
     Release,
     ReleaseMetadata,
 )
@@ -37,7 +37,7 @@ def context(
     return AnalysisContext(
         release=Release(id=1, name="pkg", version="1.0"),
         metadata=ReleaseMetadata(name="pkg", version="1.0"),
-        package=PackageInfo(),
+        package_history=PackageHistory(),
         sdist=contents("pkg-1.0.tar.gz", sdist),
         wheel=contents("pkg-1.0-py3-none-any.whl", wheel),
     )

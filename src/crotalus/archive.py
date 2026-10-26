@@ -65,14 +65,16 @@ def _wheel_rank(tags: frozenset[Tag]) -> tuple[int, int, int]:
     return rank, arch, -max(versions, default=0)
 
 
-def choose_files(files: tuple[ReleaseFile, ...]) -> tuple[ReleaseFile | None, ReleaseFile | None]:
+def choose_files_to_inspect(
+    files: tuple[ReleaseFile, ...],
+) -> tuple[ReleaseFile | None, ReleaseFile | None]:
     """The (sdist, wheel) to inspect. Either is None if there's none small enough."""
-    small = [f for f in files if f.size <= MAX_DOWNLOAD_BYTES]
+    small: list[ReleaseFile] = [f for f in files if f.size <= MAX_DOWNLOAD_BYTES]
 
     # The first sdist, or None. PyPI allows only one per release.
-    sdist = next((f for f in small if f.packagetype == "sdist"), None)
+    sdist: ReleaseFile | None = next((f for f in small if f.packagetype == "sdist"), None)
 
-    wheels = []
+    wheels: list[tuple[tuple[int, int, int], ReleaseFile]] = []  # (rank, file)
     for f in small:
         if f.packagetype != "bdist_wheel":
             continue
@@ -84,7 +86,7 @@ def choose_files(files: tuple[ReleaseFile, ...]) -> tuple[ReleaseFile | None, Re
         wheels.append((_wheel_rank(tags), f))
 
     # Only the best-ranked wheel; [1] takes the file out of its (rank, file) pair.
-    wheel = min(wheels, key=lambda pair: pair[0])[1] if wheels else None
+    wheel: ReleaseFile | None = min(wheels, key=lambda pair: pair[0])[1] if wheels else None
 
     return sdist, wheel
 
@@ -178,10 +180,10 @@ def read_members(filename: str, data: bytes) -> dict[str, str]:
     return _strip_top_folder(files, all_paths)
 
 
-def load(file: ReleaseFile | None) -> ArchiveContents | None:
-    """Download `file` and read its sources. None if there's no file to load.
+def download_and_read(file: ReleaseFile | None) -> ArchiveContents | None:
+    """Download `file` and read its source files. None if there's no file.
 
-    Called by worker.build_context; the result is stored in the AnalysisContext.
+    Called by analysis_context.build_analysis_context, for the sdist and the wheel.
     """
     if file is None:
         return None

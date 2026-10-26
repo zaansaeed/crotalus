@@ -12,7 +12,7 @@ from crotalus.models import (
     AnalysisContext,
     ArchiveContents,
     Finding,
-    PackageInfo,
+    PackageHistory,
     Release,
     ReleaseMetadata,
 )
@@ -38,7 +38,7 @@ def context(setup_py: str = SETUP_PY, summary: str | None = "A test package") ->
             summary=summary,
             uploaded_at=datetime(2026, 10, 20, tzinfo=UTC),
         ),
-        package=PackageInfo(first_uploaded_at=datetime(2026, 10, 18, tzinfo=UTC)),
+        package_history=PackageHistory(first_uploaded_at=datetime(2026, 10, 18, tzinfo=UTC)),
         sdist=ArchiveContents(filename="pkg-1.0.tar.gz", files={"setup.py": setup_py}),
     )
 
@@ -118,7 +118,7 @@ def test_long_prompts_leave_files_out() -> None:
     big = AnalysisContext(
         release=Release(id=1, name="pkg", version="1.0"),
         metadata=ReleaseMetadata(name="pkg", version="1.0"),
-        package=PackageInfo(),
+        package_history=PackageHistory(),
         wheel=ArchiveContents(filename="pkg-1.0-py3-none-any.whl", files=files),
     )
     prompt = triage.build_prompt(big, findings)
@@ -130,7 +130,7 @@ def test_long_prompts_leave_files_out() -> None:
 
 
 def test_parse_good_answer() -> None:
-    result = triage.parse_result(json.dumps(GOOD_ANSWER), "some-model")
+    result = triage.parse_answer(json.dumps(GOOD_ANSWER), "some-model")
     assert result.verdict == "benign"
     assert result.false_positive_rules == ("setup_py_install_time",)
     assert result.model == "some-model"
@@ -138,7 +138,7 @@ def test_parse_good_answer() -> None:
 
 
 def test_confidence_is_clamped() -> None:
-    result = triage.parse_result(json.dumps({**GOOD_ANSWER, "confidence": 3}), "m")
+    result = triage.parse_answer(json.dumps({**GOOD_ANSWER, "confidence": 3}), "m")
     assert result.confidence == 1.0
 
 
@@ -156,7 +156,7 @@ def test_confidence_is_clamped() -> None:
 )
 def test_parse_bad_answer(answer: str) -> None:
     with pytest.raises(triage.TriageError):
-        triage.parse_result(answer, "m")
+        triage.parse_answer(answer, "m")
 
 
 # Calling Gemini
@@ -174,7 +174,7 @@ def test_triage_calls_gemini(
         return gemini_answer(GOOD_ANSWER)
 
     fake_pypi(handler)
-    result = triage.triage(context(), [FINDING])
+    result = triage.triage_release(context(), [FINDING])
 
     assert result.verdict == "benign"
     assert result.model == triage.DEFAULT_MODEL
@@ -190,7 +190,7 @@ def test_triage_calls_gemini(
 def test_missing_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with pytest.raises(triage.TriageError, match="GEMINI_API_KEY"):
-        triage.triage(context(), [FINDING])
+        triage.triage_release(context(), [FINDING])
 
 
 @pytest.mark.parametrize(
@@ -209,4 +209,4 @@ def test_gemini_errors(
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     fake_pypi(lambda request: response)
     with pytest.raises(triage.TriageError):
-        triage.triage(context(), [FINDING])
+        triage.triage_release(context(), [FINDING])

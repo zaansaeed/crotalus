@@ -1,7 +1,7 @@
 """Tests for the rules that only look at a release's PyPI metadata."""
 
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import ModuleType
 from typing import Any
 
@@ -10,7 +10,7 @@ import pytest
 from crotalus.models import (
     AnalysisContext,
     Finding,
-    PackageInfo,
+    PackageHistory,
     Release,
     ReleaseFile,
     ReleaseMetadata,
@@ -23,7 +23,7 @@ from crotalus.rules import (
     suspicious_links,
 )
 
-T0 = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 10, 17, 12, 0, tzinfo=UTC)
 
 
 def file(filename: str, packagetype: str, uploaded_at: datetime = T0) -> ReleaseFile:
@@ -58,7 +58,7 @@ def context(**changes: Any) -> AnalysisContext:
     return AnalysisContext(
         release=Release(id=1, name="pkg", version="1.0"),
         metadata=replace(GOOD, **changes),  # a copy of the frozen dataclass with `changes`
-        package=PackageInfo(),
+        package_history=PackageHistory(),
     )
 
 
