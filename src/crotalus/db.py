@@ -21,8 +21,12 @@ import psycopg
 from dotenv import load_dotenv
 from psycopg.rows import TupleRow
 
-# This file is src/crotalus/db.py, so parents[2] is the repo root.
-MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
+# Running from the repo, this file is src/crotalus/db.py, so parents[2] is the repo
+# root. When crotalus is installed (the Docker image), the file lives in
+# site-packages instead, so the image sets MIGRATIONS_DIR to where it copied them.
+MIGRATIONS_DIR = Path(
+    os.environ.get("MIGRATIONS_DIR") or Path(__file__).resolve().parents[2] / "migrations"
+)
 
 # A connection whose rows come back as plain tuples. Used in every signature that
 # takes a connection, so they all read the same.

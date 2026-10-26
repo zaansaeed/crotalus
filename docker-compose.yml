@@ -1,9 +1,31 @@
-# Local development services for crotalus.
-# Start:  docker compose up -d
-# Stop:   docker compose down        (keeps data)
-# Wipe:   docker compose down -v     (deletes the database volume)
+# Every service crotalus needs: Postgres and the three processes that fill it.
+#
+# Everything:      docker compose up -d --build   (--build: use your latest code)
+# Only Postgres:   docker compose up -d db        (run Python from .venv, like before)
+# Watch one:       docker compose logs -f worker
+# Stop:            docker compose down            (keeps data)
+# Wipe:            docker compose down -v         (deletes the database volume)
+#
+# Start order: db is healthy -> migrate applies migrations and exits -> poller,
+# worker and triager start.
 
-services: #each service is a container this project needs
+# Settings shared by every crotalus service (an "x-" key is ignored by compose
+# itself; `<<: *crotalus` below copies these into each service).
+x-crotalus: &crotalus
+  build: . # the image from ./Dockerfile...
+  image: crotalus # ...named "crotalus", so every service shares that one image
+  environment:
+    # "db" is the Postgres service's name, which is its hostname inside Docker.
+    # (.env says localhost, which is right for .venv; this takes priority.)
+    DATABASE_URL: postgresql://crotalus:crotalus@db:5432/crotalus
+  # Restart after a crash (a non-zero exit, e.g. a database error), but not after a
+  # deliberate stop: a triager with no API key exits cleanly and should stay down.
+  restart: on-failure
+  depends_on:
+    migrate:
+      condition: service_completed_successfully # the schema is up to date first
+
+services: # each service is a container this project needs
   db:
     image: postgres:16 # pinned major version
     container_name: crotalus-pg
@@ -12,7 +34,7 @@ services: #each service is a container this project needs
       POSTGRES_PASSWORD: crotalus
       POSTGRES_DB: crotalus
     ports:
-      - "127.0.0.1:5432:5432" # host:container, so localhost:5432 on the Mac reaches Postgres
+      - "127.0.0.1:5432:5432" # host:container, so localhost:5432 on this machine reaches Postgres
     volumes:
       - pgdata:/var/lib/postgresql/data # keep data when the container is removed
     healthcheck:
@@ -22,5 +44,27 @@ services: #each service is a container this project needs
       timeout: 3s
       retries: 15
 
-volumes: #decleration of one volume we use, so data is not lost w/ container
+  # Runs once: applies any new migrations, then exits.
+  migrate:
+    <<: *crotalus
+    command: python -m crotalus.db
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  poller:
+    <<: *crotalus
+    command: python -m crotalus.poller
+
+  worker:
+    <<: *crotalus
+    command: python -m crotalus.worker
+
+  triager:
+    <<: *crotalus
+    command: python -m crotalus.triager
+    env_file: .env # for GEMINI_API_KEY (and GEMINI_MODEL, if set)
+
+volumes: # declaration of the volume used above, so data is not lost with the container
   pgdata:

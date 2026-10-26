@@ -1,0 +1,14 @@
+# What `docker build` never sees (the "build context"). Keeps the image small and
+# keeps secrets out of it: .env is passed to containers at run time instead.
+.env
+.envrc
+.git
+.venv
+**/__pycache__
+*.py[cod]
+.mypy_cache
+.pytest_cache
+.ruff_cache
+dist
+build
+*.egg-info
