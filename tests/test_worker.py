@@ -99,6 +99,19 @@ def test_reanalysis_replaces_findings(db: Conn, monkeypatch: pytest.MonkeyPatch)
     assert row == (1,)
 
 
+def test_reanalysis_deletes_old_triage(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(worker, "RULES", [lambda context: [FINDING]])
+    add_release(db, "reqeusts")
+    process_one(db)
+    db.execute(
+        "INSERT INTO triage (release_id, model, prompt_version, status, verdict,"
+        " confidence, reasoning) VALUES (1, 'm', 'v1', 'done', 'benign', 0.9, 'fine')"
+    )
+    db.execute("UPDATE releases SET status = 'pending', score = NULL, verdict = NULL")
+    process_one(db)
+    assert db.execute("SELECT count(*) FROM triage").fetchone() == (0,)
+
+
 def test_analysis_error_marks_failed(db: Conn, monkeypatch: pytest.MonkeyPatch) -> None:
     def broken(context: AnalysisContext) -> list[Finding]:
         raise ValueError("bad archive")  # e.g. a bug in a rule

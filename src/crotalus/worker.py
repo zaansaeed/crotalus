@@ -8,6 +8,7 @@ on it the whole time:
 - If the worker dies mid-analysis, Postgres rolls back and the release goes back to
   'pending' for the next worker. Database changes only are rolled back.
 - Success stores the findings, a score and a verdict (see scoring.py) and marks it 'done'.
+- Any earlier LLM triage of the release is deleted: it was about the old findings.
 - If the analysis raises, the release is marked 'failed' so it isn't retried forever.
   Except when PyPI is unreachable: that isn't the release's fault, so it rolls back
   to 'pending' and the worker waits before trying again.
@@ -119,6 +120,9 @@ def process_one(conn: psycopg.Connection[TupleRow]) -> bool:
         release = claim_release(conn)
         if release is None:
             return False
+        # Re-analyzing: earlier triage judged the earlier findings, so it's stale. The
+        # triager will look again if the new verdict is still flagged (see triager.py).
+        conn.execute("DELETE FROM triage WHERE release_id = %s", (release.id,))
 
         try:
             context = build_context(conn, release)
