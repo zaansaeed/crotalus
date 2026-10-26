@@ -10,10 +10,12 @@ from collections.abc import Callable
 
 from crotalus.models import AnalysisContext, Finding
 from crotalus.rules import (
+    hidden_code_exec,
     late_file_upload,
     missing_metadata,
     new_package,
     no_project_links,
+    pth_import_running_code,
     sdist_only,
     suspicious_links,
     typosquat,
@@ -29,4 +31,7 @@ RULES: list[Rule] = [
     late_file_upload.check,
     suspicious_links.check,
     new_package.check,
+    # Code rules: read the sdist's and wheel's source (see _code.py).
+    hidden_code_exec.check,
+    pth_import_running_code.check,
 ]
