@@ -1,7 +1,7 @@
 import pytest
 
 from crotalus.models import Finding, LLMVerdict, Severity, Verdict
-from crotalus.scoring import final_verdict, rules_verdict, score
+from crotalus.scoring import CLEAR_AT_CONFIDENCE, final_verdict, rules_verdict, score
 
 
 def finding(rule_id: str, severity: Severity) -> Finding:
@@ -57,16 +57,20 @@ def test_typosquat_on_new_package() -> None:
 
 
 @pytest.mark.parametrize(
-    ("rules", "llm", "expected"),
+    ("rules", "llm", "confidence", "expected"),
     [
-        ("suspicious", "benign", "clean"),  # the LLM decides unsure cases
-        ("suspicious", "suspicious", "suspicious"),
-        ("suspicious", "malicious", "likely_malicious"),
-        ("likely_malicious", "benign", "likely_malicious"),  # never cleared by the LLM
-        ("likely_malicious", "malicious", "likely_malicious"),
-        ("suspicious", None, "suspicious"),  # no opinion yet, or triage failed
-        ("clean", None, "clean"),  # never triaged
+        ("suspicious", "benign", 0.95, "clean"),  # the LLM decides unsure cases
+        ("suspicious", "benign", CLEAR_AT_CONFIDENCE, "clean"),  # the bar itself is enough
+        ("suspicious", "benign", 0.5, "suspicious"),  # but must be sure to clear
+        ("suspicious", "suspicious", 0.95, "suspicious"),
+        ("suspicious", "malicious", 0.5, "likely_malicious"),  # escalating needs no bar
+        ("likely_malicious", "benign", 0.99, "likely_malicious"),  # never cleared by the LLM
+        ("likely_malicious", "malicious", 0.95, "likely_malicious"),
+        ("suspicious", None, None, "suspicious"),  # no opinion yet, or triage failed
+        ("clean", None, None, "clean"),  # never triaged
     ],
 )
-def test_final_verdict(rules: Verdict, llm: LLMVerdict | None, expected: Verdict) -> None:
-    assert final_verdict(rules, llm) == expected
+def test_final_verdict(
+    rules: Verdict, llm: LLMVerdict | None, confidence: float | None, expected: Verdict
+) -> None:
+    assert final_verdict(rules, llm, confidence) == expected

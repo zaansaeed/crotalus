@@ -29,6 +29,11 @@ SEVERITY_WEIGHTS: dict[Severity, int] = {
 SUSPICIOUS_AT = 5
 LIKELY_MALICIOUS_AT = 10
 
+# How sure the LLM must say it is before its "benign" clears a suspicious release.
+# The model reports this itself and isn't calibrated, so it's a bar against
+# half-hearted answers, not a probability. A starting guess, like the weights.
+CLEAR_AT_CONFIDENCE = 0.8
+
 
 def score(findings: list[Finding]) -> int:
     """Sum of each rule's highest weight."""
@@ -55,12 +60,15 @@ def rules_verdict(findings: list[Finding]) -> Verdict:
     return "clean"
 
 
-def final_verdict(rules: Verdict, llm: LLMVerdict | None) -> Verdict:
+def final_verdict(rules: Verdict, llm: LLMVerdict | None, confidence: float | None) -> Verdict:
     """The verdict to act on: the rules' verdict, changed by the LLM only where allowed.
 
     - No LLM opinion (not flagged, not triaged yet, or triage failed): the rules' verdict.
     - "suspicious" means the rules aren't sure, so the LLM decides:
-      benign -> clean, malicious -> likely_malicious, suspicious -> suspicious.
+      benign -> clean, but only at confidence >= CLEAR_AT_CONFIDENCE (else it stays
+      suspicious); malicious -> likely_malicious; suspicious -> suspicious.
+      Only clearing needs the confidence: wrongly clearing hides malware, while wrongly
+      escalating just flags a release for a closer look.
     - "likely_malicious" stays, whatever the LLM says. The LLM reads code written by
       the attacker, who can try to talk it into "benign" (prompt injection). Limiting
       it to "suspicious" releases means a fooled LLM can at worst clear a release the
@@ -69,7 +77,9 @@ def final_verdict(rules: Verdict, llm: LLMVerdict | None) -> Verdict:
     if llm is None or rules != "suspicious":
         return rules
     if llm == "benign":
-        return "clean"
+        if confidence is not None and confidence >= CLEAR_AT_CONFIDENCE:
+            return "clean"
+        return "suspicious"
     if llm == "malicious":
         return "likely_malicious"
     return "suspicious"

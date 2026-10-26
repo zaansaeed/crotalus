@@ -59,7 +59,7 @@ def triage_next_flagged_release(conn: Connection, model: str) -> bool:
         try:
             context: AnalysisContext = build_analysis_context(conn, release)
             findings: list[Finding] = queries.load_findings(conn, release.id)
-            result: TriageResult = triage.triage_release(context, findings, model)
+            result: TriageResult = triage.triage_release(context, findings, model) #send in the context of the package + all the findings for it
         except (PyPIUnavailable, triage.LLMUnavailable):
             raise  # not this release's fault: roll back, run_forever waits and retries
         except psycopg.Error:
@@ -75,7 +75,9 @@ def triage_next_flagged_release(conn: Connection, model: str) -> bool:
             queries.store_triage_failure(conn, release.id, model, prompt_version, repr(exc))
             return True
 
-        final_verdict: Verdict = scoring.final_verdict(flagged.rules_verdict, result.verdict)
+        final_verdict: Verdict = scoring.final_verdict(
+            flagged.rules_verdict, result.verdict, result.confidence
+        )
         queries.store_triage_result(conn, release.id, result)
         queries.record_llm_verdict(conn, release.id, result.verdict, final_verdict)
         print(
