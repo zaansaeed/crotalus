@@ -58,10 +58,11 @@ def verdicts_of(db: Connection, name: str) -> tuple[int | None, str | None, str 
 
 def requeue(db: Connection) -> None:
     """Send every release back to the queue, as if re-analysis was requested.
-    A pending release can't keep its verdicts (releases_verdicts_iff_done)."""
+    A pending release can't keep its verdicts (releases_verdicts_iff_done and
+    releases_llm_verdict_only_when_done)."""
     db.execute(
         "UPDATE releases SET status = 'pending', score = NULL, rules_verdict = NULL,"
-        " final_verdict = NULL"
+        " llm_verdict = NULL, final_verdict = NULL"
     )
 
 
@@ -105,17 +106,23 @@ def test_reanalysis_replaces_findings(db: Connection, monkeypatch: pytest.Monkey
     assert row == (1,)
 
 
-def test_reanalysis_deletes_old_triage(db: Connection, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reanalysis_forgets_llm_opinion(db: Connection, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(worker, "RULES", [lambda context: [FINDING]])
     add_release(db, "reqeusts")
     analyze_next_release(db)
+    # As the triager would leave it: an LLM opinion that cleared the release.
     db.execute(
         "INSERT INTO triage (release_id, model, prompt_version, status, verdict,"
         " confidence, reasoning) VALUES (1, 'm', 'v1', 'done', 'benign', 0.9, 'fine')"
     )
+    db.execute("UPDATE releases SET llm_verdict = 'benign', final_verdict = 'clean'")
+
     requeue(db)
     analyze_next_release(db)
+    # The opinion was about the old findings: gone, and the rules' verdict is final again.
     assert db.execute("SELECT count(*) FROM triage").fetchone() == (0,)
+    row = db.execute("SELECT rules_verdict, llm_verdict, final_verdict FROM releases").fetchone()
+    assert row == ("suspicious", None, "suspicious")
 
 
 def test_analysis_error_marks_failed(db: Connection, monkeypatch: pytest.MonkeyPatch) -> None:

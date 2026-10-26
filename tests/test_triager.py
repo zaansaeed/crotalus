@@ -75,11 +75,11 @@ def add_analyzed_release(db: Connection, name: str, rules_verdict: Verdict, scor
     return release.id
 
 
-def verdicts(db: Connection) -> tuple[str, str]:
-    """(rules_verdict, final_verdict) of the only release."""
-    row = db.execute("SELECT rules_verdict, final_verdict FROM releases").fetchone()
+def verdicts(db: Connection) -> tuple[str, str | None, str]:
+    """(rules_verdict, llm_verdict, final_verdict) of the only release."""
+    row = db.execute("SELECT rules_verdict, llm_verdict, final_verdict FROM releases").fetchone()
     assert row is not None
-    return row[0], row[1]
+    return row[0], row[1], row[2]
 
 
 def triage_rows(db: Connection) -> list[tuple[object, ...]]:
@@ -87,6 +87,11 @@ def triage_rows(db: Connection) -> list[tuple[object, ...]]:
         "SELECT release_id, model, status, verdict, false_positive_rules, error"
         " FROM triage ORDER BY id"
     ).fetchall()
+
+
+def test_waiting_release_has_no_llm_verdict(db: Connection, asked: Asked) -> None:
+    add_analyzed_release(db, "pkg", "suspicious")
+    assert verdicts(db) == ("suspicious", None, "suspicious")
 
 
 def test_nothing_flagged_returns_false(db: Connection, asked: Asked) -> None:
@@ -103,13 +108,13 @@ def test_stores_llm_answer(db: Connection, asked: Asked) -> None:
         (release_id, MODEL, "done", "benign", ["setup_py_install_time"], None)
     ]
     # The rules' verdict is kept; the final verdict follows the LLM (suspicious -> clean).
-    assert verdicts(db) == ("suspicious", "clean")
+    assert verdicts(db) == ("suspicious", "benign", "clean")
 
 
 def test_llm_cannot_clear_likely_malicious(db: Connection, asked: Asked) -> None:
     add_analyzed_release(db, "pkg", "likely_malicious", score=10)
     triager.triage_next_flagged_release(db, MODEL)  # the fake LLM says benign
-    assert verdicts(db) == ("likely_malicious", "likely_malicious")
+    assert verdicts(db) == ("likely_malicious", "benign", "likely_malicious")
 
 
 def test_llm_sees_stored_findings(db: Connection, asked: Asked) -> None:
@@ -146,7 +151,7 @@ def test_bad_answer_stored_as_failed(
     assert triager.triage_next_flagged_release(db, MODEL) is True
 
     assert triage_rows(db) == [(release_id, MODEL, "failed", None, [], "answer isn't JSON")]
-    assert verdicts(db) == ("suspicious", "suspicious")  # no opinion: the rules' verdict
+    assert verdicts(db) == ("suspicious", None, "suspicious")  # no opinion: the rules' verdict
     assert triager.triage_next_flagged_release(db, MODEL) is False  # not retried
 
 

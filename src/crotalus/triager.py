@@ -10,11 +10,11 @@ yet. For each one, in one transaction that holds a row lock on the release:
     2. gather its code again, load findings    build_analysis_context / queries.load_findings
     3. ask the LLM                             triage.triage_release
     4. store its opinion                       queries.store_triage_result
-    5. combine the two verdicts                scoring.final_verdict / queries.set_final_verdict
+    5. combine the two verdicts                scoring.final_verdict / queries.record_llm_verdict
 
 - A bad answer from the LLM, or a release that can't be rebuilt (e.g. deleted from
   PyPI, which malware often is), is stored as a 'failed' triage row so it isn't
-  retried forever, and the final verdict stays the rules' verdict.
+  retried forever. Its llm_verdict stays NULL and its final verdict stays the rules'.
 - Gemini or PyPI being unreachable or rate-limiting isn't the release's fault: it
   rolls back, stays untriaged, and the triager waits before trying again.
 - No API key, a rejected key, or an unknown model stops the triager: every release
@@ -77,7 +77,7 @@ def triage_next_flagged_release(conn: Connection, model: str) -> bool:
 
         final_verdict: Verdict = scoring.final_verdict(flagged.rules_verdict, result.verdict)
         queries.store_triage_result(conn, release.id, result)
-        queries.set_final_verdict(conn, release.id, final_verdict)
+        queries.record_llm_verdict(conn, release.id, result.verdict, final_verdict)
         print(
             f"{release.name} {release.version}: rules say {flagged.rules_verdict},"
             f" LLM says {result.verdict} ({result.confidence:.2f}) -> {final_verdict}."

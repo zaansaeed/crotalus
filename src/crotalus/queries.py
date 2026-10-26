@@ -4,7 +4,7 @@
     worker   claim_next_pending_release, cached_first_upload, cache_first_upload,
              replace_findings, delete_triage, mark_analyzed, mark_failed
     triager  claim_next_flagged_release, load_findings, store_triage_result,
-             store_triage_failure, set_final_verdict
+             store_triage_failure, record_llm_verdict
 
 None of these commit or open a transaction: the caller decides what has to succeed
 or fail together (see poller.poll_once, worker.analyze_next_release and
@@ -23,7 +23,15 @@ from datetime import datetime
 from psycopg.types.json import Jsonb
 
 from crotalus.db import Connection
-from crotalus.models import FeedEntry, Finding, FlaggedRelease, Release, TriageResult, Verdict
+from crotalus.models import (
+    FeedEntry,
+    Finding,
+    FlaggedRelease,
+    LLMVerdict,
+    Release,
+    TriageResult,
+    Verdict,
+)
 
 # --- Poller ------------------------------------------------------------------------
 
@@ -125,11 +133,11 @@ def delete_triage(conn: Connection, release_id: int) -> None:
 
 
 def mark_analyzed(conn: Connection, release_id: int, score: int, rules_verdict: Verdict) -> None:
-    """'done', with the rules' score and verdict. The final verdict starts out as the
-    rules' verdict; the triager may change it later."""
+    """'done', with the rules' score and verdict. No LLM verdict yet, so the final
+    verdict starts out as the rules' verdict; the triager may change both later."""
     conn.execute(
         "UPDATE releases SET status = 'done', score = %s, rules_verdict = %s,"
-        " final_verdict = %s WHERE id = %s",
+        " llm_verdict = NULL, final_verdict = %s WHERE id = %s",
         (score, rules_verdict, rules_verdict, release_id),
     )
 
@@ -139,7 +147,7 @@ def mark_failed(conn: Connection, release_id: int) -> None:
     cleared: only 'done' releases may have one (releases_verdicts_iff_done)."""
     conn.execute(
         "UPDATE releases SET status = 'failed', score = NULL, rules_verdict = NULL,"
-        " final_verdict = NULL WHERE id = %s",
+        " llm_verdict = NULL, final_verdict = NULL WHERE id = %s",
         (release_id,),
     )
 
@@ -150,7 +158,17 @@ def mark_failed(conn: Connection, release_id: int) -> None:
 def claim_next_flagged_release(
     conn: Connection, model: str, prompt_version: str
 ) -> FlaggedRelease | None:
-    """Lock the oldest flagged release this model and prompt haven't triaged yet."""
+    """Lock the oldest flagged release this model and prompt haven't triaged yet.
+
+    "Not triaged yet" is checked against the triage table, not `llm_verdict IS NULL`:
+    - A failed triage (a bad answer, or the release is gone from PyPI) leaves
+      llm_verdict NULL. Its 'failed' triage row is what stops the triager from
+      claiming it again forever, spending its rate limit on the same failure.
+    - It's per model and prompt version: bumping triage.PROMPT_VERSION, or switching
+      model, makes every flagged release eligible again, so the new prompt or model
+      can be compared with the old one on the same releases.
+    llm_verdict is for reading the current opinion; this check is for picking work.
+    """
     row = conn.execute(
         """
         SELECT r.id, p.name, r.version, r.rules_verdict
@@ -216,7 +234,11 @@ def store_triage_failure(
     )
 
 
-def set_final_verdict(conn: Connection, release_id: int, final_verdict: Verdict) -> None:
+def record_llm_verdict(
+    conn: Connection, release_id: int, llm_verdict: LLMVerdict, final_verdict: Verdict
+) -> None:
+    """The LLM's verdict, and the final verdict it led to (see scoring.final_verdict)."""
     conn.execute(
-        "UPDATE releases SET final_verdict = %s WHERE id = %s", (final_verdict, release_id)
+        "UPDATE releases SET llm_verdict = %s, final_verdict = %s WHERE id = %s",
+        (llm_verdict, final_verdict, release_id),
     )

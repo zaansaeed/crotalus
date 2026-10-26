@@ -21,7 +21,8 @@ Severity = Literal["low", "medium", "high", "critical"]
 # by the LLM's opinion).
 Verdict = Literal["clean", "suspicious", "likely_malicious"]
 
-# The LLM's opinion of a flagged release (see triage.py). Matches the CHECK on triage.verdict.
+# The LLM's opinion of a flagged release (see triage.py). Matches the CHECKs on
+# triage.verdict and releases.llm_verdict.
 LLMVerdict = Literal["benign", "suspicious", "malicious"]
 
 

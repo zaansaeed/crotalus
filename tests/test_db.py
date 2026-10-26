@@ -128,3 +128,9 @@ def test_triage_once_per_model_and_prompt(db: Connection) -> None:
             "INSERT INTO triage (release_id, model, prompt_version, status, verdict,"
             " confidence, reasoning) VALUES (1, 'm', 'v1', 'done', 'malicious', 1, 'x')"
         )
+
+
+def test_llm_verdict_only_when_done(db: Connection) -> None:
+    add_release(db, add_package(db, "requests"), "2.31.0")
+    with pytest.raises(psycopg.errors.CheckViolation):
+        db.execute("UPDATE releases SET llm_verdict = 'benign'")  # still pending
