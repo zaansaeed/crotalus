@@ -1,11 +1,14 @@
 package main //part of main package
 
 import (
-	"github.com/jackc/pgx/v5/pgxpool"
+	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
-	"encoding/json"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // w the response, r is the request the user sent
@@ -25,23 +28,45 @@ func healthHandler(pool *pgxpool.Pool) http.HandlerFunc {
 func flaggedHandler(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 1. read ?limit=
-		limit := 50                                  // default
+		limit := 50                                   // default
 		if s := r.URL.Query().Get("limit"); s != "" { //parse the URL into a dict .Query()
-			n, err := strconv.Atoi(s)                // "20" → 20; "abc" → error
+			n, err := strconv.Atoi(s) // "20" → 20; "abc" → error
 			if err != nil || n < 1 || n > 500 {
 				http.Error(w, "limit must be 1-500", http.StatusBadRequest)
 				return
 			}
 			limit = n
 		}
-		
+
 		releases, err := flaggedReleases(r.Context(), pool, limit)
 		if err != nil {
-			log.Printf("flagged: query failed: %v", err)   
+			log.Printf("flagged: query failed: %v", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(releases)
+	}
+}
+
+func releaseHandler(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) { //equiv of lambda function, since server requires function of this type.
+		// we can use pathvalue here because these are the path names of the entries in the endpoint.
+		name := r.PathValue("name")
+		version := r.PathValue("version")
+
+		detail, err := releaseDetail(r.Context(), pool, name, version)
+		if errors.Is(err, pgx.ErrNoRows) { // no such release, or not analyzed yet
+			http.Error(w, "release not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			log.Printf("release %s %s: query failed: %v", name, version, err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(detail)
 	}
 }

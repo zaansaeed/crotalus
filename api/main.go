@@ -24,6 +24,7 @@ func main() {
 	//end points
 	http.HandleFunc("GET /health", healthHandler(pool)) // health endpoint
 	http.HandleFunc("GET /flagged", flaggedHandler(pool))
+	http.HandleFunc("GET /releases/{name}/{version}", releaseHandler(pool))
 
-	log.Fatal(http.ListenAndServe(":8080", nil))        // start it; blocks forever
+	log.Fatal(http.ListenAndServe(":8080", nil)) // start it; blocks forever
 }
