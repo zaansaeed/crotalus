@@ -11,9 +11,14 @@ machine that installed the new version, before any of its functions are called:
 The same check as setup_py_install_time, for every module of the package, but only
 for code that runs on import (static_code_analysis_helpers.import_time_calls):
 
-- process calls, or network requests                           -> medium
-- both                                                         -> high
-- a process started with decoded or downloaded data            -> critical
+- process calls, or network requests                           -> high
+- both, or a process started with decoded or downloaded data   -> critical
+
+Higher than setup_py_install_time's medium for the same calls: setup.py files
+often run build tools, but honest libraries almost never start programs or make
+requests just because they were imported. And a compromised library has nothing
+else wrong with it (an old project, real links), so this finding has to be
+suspicious on its own.
 
 Network requests means calls that connect somewhere (NETWORK_REQUESTS), not all of
 a network module: API clients routinely build settings like httpx.Timeout(...) at
@@ -28,10 +33,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from crotalus.models import AnalysisContext, Finding
+from crotalus.models import AnalysisContext, Finding, Severity
 from crotalus.rules.static_code_analysis_helpers import (
     NETWORK_REQUESTS,
-    code_severity,
     import_time_calls,
     is_process,
     read,
@@ -83,10 +87,12 @@ def check(context: AnalysisContext) -> list[Finding]:
     if network_calls:
         behaviours.append("uses the network")
     files = sorted({location["file"] for location in call_locations})
+    critical = runs_hidden_data or (process_calls and network_calls)
+    severity: Severity = "critical" if critical else "high"
     return [
         Finding(
             rule_id="import_time_code",
-            severity=code_severity(bool(process_calls), bool(network_calls), runs_hidden_data),
+            severity=severity,
             message=f"importing the package {' and '.join(behaviours)} ({', '.join(files[:3])})",
             evidence={
                 "archive": archive_name,

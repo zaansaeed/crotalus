@@ -26,7 +26,6 @@ from typing import Any
 from crotalus.models import AnalysisContext, Finding, PyFile, Severity
 from crotalus.rules.static_code_analysis_helpers import (
     calls,
-    code_severity,
     full_name,
     is_network,
     is_process,
@@ -95,9 +94,15 @@ def check(context: AnalysisContext) -> list[Finding]:
     if network_calls:
         behaviours.append("uses the network")
 
-    severity: Severity = "low"  # only build tools
-    if process_calls or network_calls:
-        severity = code_severity(bool(process_calls), bool(network_calls), runs_hidden_data)
+    severity: Severity
+    if runs_hidden_data:
+        severity = "critical"
+    elif process_calls and network_calls:
+        severity = "high"
+    elif process_calls or network_calls:
+        severity = "medium"
+    else:  # only build tools
+        severity = "low"
 
     return [
         Finding(

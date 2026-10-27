@@ -44,7 +44,7 @@ import ast
 import warnings
 from collections.abc import Iterator
 
-from crotalus.models import AnalysisContext, PyFile, Severity
+from crotalus.models import AnalysisContext, PyFile
 
 # --- Groups of dangerous names, as full_name resolves them -------------------------
 
@@ -313,18 +313,6 @@ def runs_decoded_or_downloaded_data(call_node: ast.Call, py_file: PyFile) -> boo
     """Whether any argument of a call holds decoded or downloaded data."""
     arguments = [*call_node.args, *(kw.value for kw in call_node.keywords)]
     return any(origins(argument, py_file) for argument in arguments)
-
-
-def code_severity(starts_programs: bool, uses_network: bool, runs_hidden_data: bool) -> Severity:
-    """How bad code that runs on install or import is, for the rules that check it.
-
-    One of these is common in honest packages; together they look like a dropper.
-    """
-    if runs_hidden_data:  # a program run with decoded or downloaded data
-        return "critical"
-    if starts_programs and uses_network:
-        return "high"
-    return "medium"
 
 
 def snippet(py_file: PyFile, node: ast.AST, limit: int = 200) -> str:
