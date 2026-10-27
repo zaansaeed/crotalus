@@ -244,7 +244,7 @@ executed lines call run-code, decoder, process or network functions.
 ## Static analysis (AST)
 
 The code rules never run package code. They parse it with Python's `ast` module and
-reason about the syntax tree (`rules/static_code_analysis_helpers.py`). Malware rarely
+reason about the syntax tree (`rules/helpers/`). Malware rarely
 calls things by their plain names, so the helpers resolve what each name really is.
 
 **Aliases: what a name refers to.** All of these are the same call:

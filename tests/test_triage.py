@@ -85,6 +85,28 @@ def test_whole_file_when_no_lines_flagged() -> None:
     assert len(triage.numbered_lines_near_flagged("a\nb\nc", set()).splitlines()) == 3
 
 
+def test_excerpts_for_findings_about_several_files() -> None:
+    files = {"pkg/a.py": "import os\nos.system('x')", "pkg/b.py": "x = 1\ny = 2"}
+    with_package = AnalysisContext(
+        release=Release(id=1, name="pkg", version="1.0"),
+        metadata=ReleaseMetadata(name="pkg", version="1.0"),
+        package_history=PackageHistory(first_uploaded_at=None),
+        wheel=ArchiveContents(filename="pkg-1.0-py3-none-any.whl", files=files),
+    )
+    finding = Finding(  # like import_time_code: "files", and a file on each call
+        rule_id="import_time_code",
+        severity="high",
+        message="importing the package starts programs",
+        evidence={
+            "archive": "wheel",
+            "files": ["pkg/a.py", "pkg/b.py"],
+            "calls": [{"file": "pkg/a.py", "line": 2}, {"file": "pkg/b.py", "line": 1}],
+        },
+    )
+    headings = [heading for heading, _ in triage.excerpts_of_flagged_files(with_package, [finding])]
+    assert headings == ["wheel: pkg/a.py", "wheel: pkg/b.py"]
+
+
 def test_findings_without_code_have_no_excerpt() -> None:
     typosquat = Finding(rule_id="typosquat", severity="medium", message="close to requests")
     assert triage.excerpts_of_flagged_files(context(), [typosquat]) == []

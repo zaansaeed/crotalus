@@ -94,7 +94,7 @@ class ArchiveContents:
 
 
 # One Python file from an archive, parsed, with what its names mean. Made by
-# rules/static_code_analysis_helpers.read for the code rules.
+# rules/helpers/static_code_analysis.read for the code rules.
 @dataclass(frozen=True)
 class PyFile:
     source: str

@@ -8,8 +8,9 @@ machine that installed the new version, before any of its functions are called:
     import subprocess, base64
     subprocess.Popen([sys.executable, "-c", base64.b64decode("aW1wb3J0IG9z...")])
 
-The same check as setup_py_install_time, for every module of the package, but only
-for code that runs on import (static_code_analysis_helpers.import_time_calls):
+Checks the modules `import pkg` actually loads (modules_run_on_import: each
+package's __init__.py and what it imports, followed through the import graph), and
+in them, the top-level code (top_level_calls):
 
 - process calls, or network requests                           -> high
 - both, or a process started with decoded or downloaded data   -> critical
@@ -20,97 +21,37 @@ requests just because they were imported. And a compromised library has nothing
 else wrong with it (an old project, real links), so this finding has to be
 suspicious on its own.
 
-Network requests means calls that connect somewhere (NETWORK_REQUESTS), not all of
-a network module: API clients routinely build settings like httpx.Timeout(...) at
-import time, which sends nothing.
-
-Not checked: setup.py (setup_py_install_time's job), tests, docs, examples, project
-templates and __main__.py, which aren't imported when the package is used. The wheel is checked
-when there is one, since that's what gets installed; otherwise the sdist.
+Modules nothing imports (a Streamlit app, a launcher script) only run when someone
+runs them: unimported_script_code's job. Not followed: imports by a computed name
+(importlib.import_module(name)) and calls into functions of other files.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
 from crotalus.models import AnalysisContext, Finding, Severity
-from crotalus.rules.static_code_analysis_helpers import (
-    NETWORK_REQUESTS,
-    import_time_calls,
-    is_process,
-    read,
-    runs_decoded_or_downloaded_data,
-    snippet,
+from crotalus.rules.helpers.import_time import (
+    installed_package_code,
+    modules_run_on_import,
+    top_level_calls,
 )
-
-# Folders whose files aren't imported when the package is used. Template folders
-# hold files for generating new projects (e.g. cookiecutter hooks), not package code.
-NOT_IMPORTED_FOLDERS = {"tests", "test", "testing", "docs", "doc", "examples", "scripts"}
-NOT_IMPORTED_FILES = {"setup.py", "conftest.py", "__main__.py"}
 
 
 def check(context: AnalysisContext) -> list[Finding]:
-    archive_name, archive = ("wheel", context.wheel) if context.wheel else ("sdist", context.sdist)
-    if archive is None:
+    package_code = installed_package_code(context)
+    if package_code is None:
         return []
+    archive_name, files = package_code
 
-    process_calls: set[str] = set()
-    network_calls: set[str] = set()
-    runs_hidden_data = False  # a process started with decoded or downloaded data
-    call_locations: list[dict[str, Any]] = []  # where each call is, for the evidence
-    for path, source in sorted(archive.files.items()):
-        py_file = read(source) if _loaded_by_import(path) else None
-        if py_file is None:
-            continue
-        for call_name, call_node in import_time_calls(py_file):
-            if call_name in NETWORK_REQUESTS:
-                network_calls.add(call_name)
-            elif call_name and is_process(call_name):
-                process_calls.add(call_name)
-                runs_hidden_data |= runs_decoded_or_downloaded_data(call_node, py_file)
-            else:
-                continue
-            call_locations.append(
-                {
-                    "file": path,
-                    "call": call_name,
-                    "line": call_node.lineno,
-                    "snippet": snippet(py_file, call_node),
-                }
-            )
-    if not call_locations:
+    found = top_level_calls(modules_run_on_import(files))
+    if not found.locations:
         return []
-
-    behaviours = []
-    if process_calls:
-        behaviours.append("starts programs")
-    if network_calls:
-        behaviours.append("uses the network")
-    files = sorted({location["file"] for location in call_locations})
-    critical = runs_hidden_data or (process_calls and network_calls)
+    critical = found.runs_hidden_data or (found.process_calls and found.network_calls)
     severity: Severity = "critical" if critical else "high"
     return [
         Finding(
             rule_id="import_time_code",
             severity=severity,
-            message=f"importing the package {' and '.join(behaviours)} ({', '.join(files[:3])})",
-            evidence={
-                "archive": archive_name,
-                "files": files,
-                "process_calls": sorted(process_calls),
-                "network_calls": sorted(network_calls),
-                "runs_decoded_or_downloaded_data": runs_hidden_data,
-                "calls": call_locations[:10],  # the first few is enough to see what it does
-            },
+            message=f"importing the package {found.description()} ({', '.join(found.files()[:3])})",
+            evidence=found.evidence(archive_name),
         )
     ]
-
-
-def _loaded_by_import(path: str) -> bool:
-    """Whether a .py file is part of what `import pkg` can load."""
-    if not path.endswith(".py"):
-        return False
-    *folders, filename = path.split("/")
-    if filename in NOT_IMPORTED_FILES or filename.startswith("test_"):
-        return False
-    return not any(folder in NOT_IMPORTED_FOLDERS or "template" in folder for folder in folders)

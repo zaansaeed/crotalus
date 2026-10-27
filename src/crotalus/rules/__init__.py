@@ -21,6 +21,7 @@ from crotalus.rules import (
     setup_py_install_time,
     suspicious_links,
     typosquat,
+    unimported_script_code,
 )
 
 Rule = Callable[[AnalysisContext], list[Finding]]
@@ -33,9 +34,10 @@ RULES: list[Rule] = [
     late_file_upload.check,
     suspicious_links.check,
     new_package.check,
-    # Code rules: read the sdist's and wheel's source (see static_code_analysis_helpers.py).
+    # Code rules: read the sdist's and wheel's source (see rules/helpers/).
     hidden_code_exec.check,
     pth_import_running_code.check,
     setup_py_install_time.check,
     import_time_code.check,
+    unimported_script_code.check,
 ]

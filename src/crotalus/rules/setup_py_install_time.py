@@ -24,7 +24,7 @@ import ast
 from typing import Any
 
 from crotalus.models import AnalysisContext, Finding, PyFile, Severity
-from crotalus.rules.static_code_analysis_helpers import (
+from crotalus.rules.helpers.static_code_analysis import (
     calls,
     full_name,
     is_network,

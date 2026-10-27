@@ -1,4 +1,4 @@
-"""Shared helpers for rules that read a release's Python code.
+"""Reading a release's Python code: what its names mean, and where values come from.
 
 Malware rarely calls things by their plain names. `exec(base64.b64decode(x))` can
 also be written `import base64 as b; exec(b.b64decode(x))`, `builtins.exec(...)`,
@@ -240,55 +240,7 @@ def calls(py_file: PyFile) -> Iterator[tuple[str | None, ast.Call]]:
             yield full_name(node.func, py_file.aliases), node
 
 
-def import_time_calls(py_file: PyFile) -> Iterator[tuple[str | None, ast.Call]]:
-    """(full name, call node) for the calls that run when the module is imported.
-
-    That's code at the top level of the file and in class bodies, but not inside
-    functions, which only run when called. Except: a function of this file that the
-    top level calls, or starts as a thread (`Thread(target=f)`), runs on import too,
-    so its calls count as well. Code under `if __name__ == "__main__":` only runs
-    when the file is executed directly, so it's skipped.
-    """
-    top_level_functions = {
-        node.name: node
-        for node in py_file.tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    nodes_to_visit: list[ast.AST] = list(py_file.tree.body)
-    followed_functions: set[str] = set()  # functions whose body is already queued
-    while nodes_to_visit:
-        node = nodes_to_visit.pop()
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-            continue  # defined here, not run here
-        if _is_main_guard(node):
-            continue
-        if isinstance(node, ast.Call):
-            call_name = full_name(node.func, py_file.aliases)
-            yield call_name, node
-            # f() or Thread(target=f): f's body runs now too. Each function once.
-            functions_run_by_call = [
-                node.func,
-                *(kw.value for kw in node.keywords if kw.arg == "target"),
-            ]
-            for function in functions_run_by_call:
-                if isinstance(function, ast.Name) and function.id in top_level_functions:
-                    if function.id not in followed_functions:
-                        followed_functions.add(function.id)
-                        nodes_to_visit.extend(top_level_functions[function.id].body)
-        nodes_to_visit.extend(ast.iter_child_nodes(node))
-
-
-def _is_main_guard(node: ast.AST) -> bool:
-    """`if __name__ == "__main__":`"""
-    return (
-        isinstance(node, ast.If)
-        and isinstance(node.test, ast.Compare)
-        and isinstance(node.test.left, ast.Name)
-        and node.test.left.id == "__name__"
-        and len(node.test.comparators) == 1
-        and isinstance(node.test.comparators[0], ast.Constant)
-        and node.test.comparators[0].value == "__main__"
-    )
+# --- Where values come from --------------------------------------------------------
 
 
 def origins(expr: ast.expr, py_file: PyFile) -> set[str]:
@@ -313,6 +265,9 @@ def runs_decoded_or_downloaded_data(call_node: ast.Call, py_file: PyFile) -> boo
     """Whether any argument of a call holds decoded or downloaded data."""
     arguments = [*call_node.args, *(kw.value for kw in call_node.keywords)]
     return any(origins(argument, py_file) for argument in arguments)
+
+
+# --- For evidence and rules --------------------------------------------------------
 
 
 def snippet(py_file: PyFile, node: ast.AST, limit: int = 200) -> str:

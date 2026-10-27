@@ -20,7 +20,7 @@ and only files installed to its top level are read there.
 from __future__ import annotations
 
 from crotalus.models import AnalysisContext, Finding
-from crotalus.rules.static_code_analysis_helpers import (
+from crotalus.rules.helpers.static_code_analysis import (
     DECODERS,
     RUN_CODE,
     calls,

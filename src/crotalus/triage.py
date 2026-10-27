@@ -174,12 +174,17 @@ def excerpts_of_flagged_files(
     flagged_lines_by_file: dict[tuple[str, str], set[int]] = {}  # (archive, path) -> lines
     for finding in findings:
         archive, path = finding.evidence.get("archive"), finding.evidence.get("file")
-        if archive is None or path is None:
+        if archive is None:
             continue  # not about code (e.g. typosquat) (not a code static analysis rule)
-        flagged_lines = flagged_lines_by_file.setdefault((archive, path), set())
-        if "line" in finding.evidence:
-            flagged_lines.add(finding.evidence["line"])
-        flagged_lines.update(call["line"] for call in finding.evidence.get("calls", []))
+        if path is not None:  # a finding about one file
+            flagged_lines = flagged_lines_by_file.setdefault((archive, path), set())
+            if "line" in finding.evidence:
+                flagged_lines.add(finding.evidence["line"])
+        for call in finding.evidence.get("calls", []):
+            # Findings about several files (import_time_code) name the file per call.
+            call_path = call.get("file", path)
+            if call_path is not None:
+                flagged_lines_by_file.setdefault((archive, call_path), set()).add(call["line"])
 
     excerpts: list[tuple[str, str]] = []
     # Iterate over each file with flagged lines, then get its excerpt.

