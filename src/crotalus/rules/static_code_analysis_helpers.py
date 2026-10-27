@@ -101,6 +101,30 @@ NETWORK_MODULES = {
 }
 
 
+# Calls that actually connect somewhere, as opposed to everything else in a network
+# module (settings objects like httpx.Timeout, urllib3.disable_warnings, ...).
+NETWORK_REQUESTS = {
+    *(
+        f"{module}.{method}"
+        for module in ("requests", "httpx")
+        for method in ("get", "post", "put", "patch", "delete", "head", "options", "request")
+    ),
+    "httpx.stream",
+    "urllib.request.urlopen",
+    "urllib.request.urlretrieve",
+    "urllib3.request",
+    "aiohttp.request",
+    "socket.socket",
+    "socket.create_connection",
+    "http.client.HTTPConnection",
+    "http.client.HTTPSConnection",
+    "ftplib.FTP",
+    "smtplib.SMTP",
+    "smtplib.SMTP_SSL",
+    "telnetlib.Telnet",
+}
+
+
 def is_network(name: str) -> bool:
     """Whether `name` is in a network module: "requests.get" is in "requests"."""
     return any(name == m or name.startswith(m + ".") for m in NETWORK_MODULES)

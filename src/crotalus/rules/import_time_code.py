@@ -11,11 +11,15 @@ machine that installed the new version, before any of its functions are called:
 The same check as setup_py_install_time, for every module of the package, but only
 for code that runs on import (static_code_analysis_helpers.import_time_calls):
 
-- process or network calls                                     -> high
+- process calls, or network requests                           -> high
 - both, or a process started with decoded or downloaded data   -> critical
 
-Not checked: setup.py (setup_py_install_time's job), tests, docs, examples and
-__main__.py, which aren't imported when the package is used. The wheel is checked
+Network requests means calls that connect somewhere (NETWORK_REQUESTS), not all of
+a network module: API clients routinely build settings like httpx.Timeout(...) at
+import time, which sends nothing.
+
+Not checked: setup.py (setup_py_install_time's job), tests, docs, examples, project
+templates and __main__.py, which aren't imported when the package is used. The wheel is checked
 when there is one, since that's what gets installed; otherwise the sdist.
 """
 
@@ -25,15 +29,16 @@ from typing import Any
 
 from crotalus.models import AnalysisContext, Finding
 from crotalus.rules.static_code_analysis_helpers import (
+    NETWORK_REQUESTS,
     import_time_calls,
-    is_network,
     is_process,
     origins,
     read,
     snippet,
 )
 
-# Folders whose files aren't imported when the package is used.
+# Folders whose files aren't imported when the package is used. Template folders
+# hold files for generating new projects (e.g. cookiecutter hooks), not package code.
 NOT_IMPORTED_FOLDERS = {"tests", "test", "testing", "docs", "doc", "examples", "scripts"}
 NOT_IMPORTED_FILES = {"setup.py", "conftest.py", "__main__.py"}
 
@@ -61,7 +66,7 @@ def check(context: AnalysisContext) -> list[Finding]:
                 arguments = [*call_node.args, *(kw.value for kw in call_node.keywords)]
                 if any(origins(argument, py_file) for argument in arguments):
                     runs_hidden_data = True
-            elif is_network(call_name):
+            elif call_name in NETWORK_REQUESTS:
                 network_calls.add(call_name)
             else:
                 continue
@@ -107,4 +112,4 @@ def _imported(path: str) -> bool:
     *folders, filename = path.split("/")
     if filename in NOT_IMPORTED_FILES or filename.startswith("test_"):
         return False
-    return not any(folder in NOT_IMPORTED_FOLDERS for folder in folders)
+    return not any(folder in NOT_IMPORTED_FOLDERS or "template" in folder for folder in folders)

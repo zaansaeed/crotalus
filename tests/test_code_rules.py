@@ -366,6 +366,10 @@ def test_import_time_code(init_py: str, severity: str) -> None:
         {"setup.py": "import os\nos.system('x')"},  # setup_py_install_time's job
         {"tests/test_pkg.py": "import subprocess\nsubprocess.run(['pytest'])"},
         {"pkg/__main__.py": "import subprocess\nsubprocess.run(['x'])"},
+        # Settings objects from a network library send nothing.
+        {"pkg/_constants.py": "import httpx\nTIMEOUT = httpx.Timeout(timeout=60)"},
+        {"pkg/api.py": "import requests\nrequests.packages.urllib3.disable_warnings()"},
+        {"pkg/project_template/hooks/post_gen.py": "import subprocess\nsubprocess.run(['x'])"},
     ],
 )
 def test_import_time_code_that_is_fine(files: dict[str, str]) -> None:
