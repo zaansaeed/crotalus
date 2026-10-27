@@ -66,5 +66,19 @@ services: # each service is a container this project needs
     command: python -m crotalus.triager
     env_file: .env # for GEMINI_API_KEY (and GEMINI_MODEL, if set)
 
+  # The read-only Go API. Its own image (api/Dockerfile), so it doesn't use the
+  # shared settings above, which build the Python image.
+  api:
+    build: ./api
+    image: crotalus-api
+    environment:
+      DATABASE_URL: postgresql://crotalus:crotalus@db:5432/crotalus
+    ports:
+      - "127.0.0.1:8080:8080" # localhost:8080 on this machine reaches the API
+    restart: on-failure
+    depends_on:
+      migrate:
+        condition: service_completed_successfully # reads tables the migrations create
+
 volumes: # declaration of the volume used above, so data is not lost with the container
   pgdata:
