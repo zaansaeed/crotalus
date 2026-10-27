@@ -70,7 +70,7 @@ flowchart LR
         migrate[migrate<br/>runs once]
     end
 
-    PyPI -- RSS feed, every 60s --> poller
+    PyPI -- RSS feed, every 15s --> poller
     poller -- new releases: pending --> db
     db -- claim pending release --> worker
     PyPI -- metadata + sdist/wheel --> worker
@@ -110,7 +110,7 @@ That design means:
 
 ### 1. Poller: discover new releases (`poller.py`)
 
-Every 60 seconds, the poller fetches PyPI's RSS feed of the latest ~100 uploads, and
+Every 15 seconds, the poller fetches PyPI's RSS feed of the latest ~100 uploads, and
 stores each release it hasn't seen before as `pending`. Every poll is recorded in
 `ingest_runs`, including failures (PyPI down, malformed XML), which are skipped and
 retried on the next poll.

@@ -2,8 +2,12 @@
 
 Run with: python -m crotalus.poller
 
-Every 60s: fetch the feed (the latest ~100 uploads), store the releases not seen
+Every 15s: fetch the feed (the latest ~100 uploads), store the releases not seen
 before as 'pending', and record the poll in ingest_runs.
+
+Most of a release's time to a verdict is waiting for the next poll, so the interval
+sets how fast crotalus is. PyPI's feed changes every 10-20s, and 100 entries cover
+several minutes of uploads, so polling faster than this would add load, not speed.
 
 Feed problems (PyPI down, malformed XML) skip that poll, recorded with the reason,
 and the next poll tries again. Database errors stop the poller.
@@ -20,7 +24,7 @@ from crotalus.loop import run_forever
 from crotalus.models import FeedEntry
 from crotalus.pypi import RSS_URL, PyPIError, fetch_feed
 
-POLL_INTERVAL_SECONDS = 60
+POLL_INTERVAL_SECONDS = 15
 
 
 def poll_once(conn: Connection) -> bool:
