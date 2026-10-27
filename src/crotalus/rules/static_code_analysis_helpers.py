@@ -216,6 +216,54 @@ def calls(py_file: PyFile) -> Iterator[tuple[str | None, ast.Call]]:
             yield full_name(node.func, py_file.aliases), node
 
 
+def import_time_calls(py_file: PyFile) -> Iterator[tuple[str | None, ast.Call]]:
+    """(full name, call node) for the calls that run when the module is imported.
+
+    That's code at the top level of the file and in class bodies, but not inside
+    functions, which only run when called. Except: a function of this file that the
+    top level calls, or starts as a thread (`Thread(target=f)`), runs on import too,
+    so its calls count as well. Code under `if __name__ == "__main__":` only runs
+    when the file is executed directly, so it's skipped.
+    """
+    functions = {
+        node.name: node
+        for node in py_file.tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    to_visit: list[ast.AST] = list(py_file.tree.body)
+    visited_functions: set[str] = set()
+    while to_visit:
+        node = to_visit.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue  # defined here, not run here
+        if _is_main_guard(node):
+            continue
+        if isinstance(node, ast.Call):
+            call_name = full_name(node.func, py_file.aliases)
+            yield call_name, node
+            # f() or Thread(target=f): f's body runs now too. Each function once.
+            started = [node.func, *(kw.value for kw in node.keywords if kw.arg == "target")]
+            for expr in started:
+                if isinstance(expr, ast.Name) and expr.id in functions:
+                    if expr.id not in visited_functions:
+                        visited_functions.add(expr.id)
+                        to_visit.extend(functions[expr.id].body)
+        to_visit.extend(ast.iter_child_nodes(node))
+
+
+def _is_main_guard(node: ast.AST) -> bool:
+    """`if __name__ == "__main__":`"""
+    return (
+        isinstance(node, ast.If)
+        and isinstance(node.test, ast.Compare)
+        and isinstance(node.test.left, ast.Name)
+        and node.test.left.id == "__name__"
+        and len(node.test.comparators) == 1
+        and isinstance(node.test.comparators[0], ast.Constant)
+        and node.test.comparators[0].value == "__main__"
+    )
+
+
 def origins(expr: ast.expr, py_file: PyFile) -> set[str]:
     """The decoder and network calls an expression's value comes from.
 

@@ -11,6 +11,7 @@ from collections.abc import Callable
 from crotalus.models import AnalysisContext, Finding
 from crotalus.rules import (
     hidden_code_exec,
+    import_time_code,
     late_file_upload,
     missing_metadata,
     new_package,
@@ -36,4 +37,5 @@ RULES: list[Rule] = [
     hidden_code_exec.check,
     pth_import_running_code.check,
     setup_py_install_time.check,
+    import_time_code.check,
 ]

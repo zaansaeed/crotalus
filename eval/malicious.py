@@ -1,4 +1,6 @@
-"""Measure crotalus on known malware: Datadog's malicious-software-packages-dataset.
+"""
+AI GENERATED
+Measure crotalus on known malware: Datadog's malicious-software-packages-dataset.
 
 Run with: docker compose run --rm eval eval/malicious.py [--limit 100] [--triage]
                                                      [--out eval/results/malicious.csv]
@@ -41,11 +43,13 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import random
 import sys
 import zipfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from email.parser import Parser
+from pathlib import Path
 from typing import Any
 
 import common
@@ -64,6 +68,7 @@ TREE_URL = "https://api.github.com/repos/" + REPO + "/git/trees/{sha}?recursive=
 CONTENTS_URL = "https://api.github.com/repos/" + REPO + "/contents/samples/pypi"
 RAW_URL = "https://raw.githubusercontent.com/" + REPO + "/main/samples/pypi/{path}"
 PASSWORD = b"infected"
+CACHE_DIR = Path(__file__).resolve().parent / "results"  # sample listings, not samples
 KINDS = ("malicious_intent", "compromised_lib")
 
 
@@ -82,17 +87,29 @@ class Sample:
 
 
 def list_samples(kind: str) -> list[Sample]:
-    """Every PyPI sample of one kind in the dataset, from GitHub's API (two requests)."""
+    """Every PyPI sample of one kind in the dataset.
+
+    Listed from GitHub's API (two requests), then cached in eval/results/ so later
+    runs don't spend GitHub's limit of 60 requests an hour without a token. Delete
+    the cache file to pick up new samples.
+    """
+    cache = CACHE_DIR / f"samples-{kind}.json"
+    if cache.exists():
+        return [Sample(**entry) for entry in json.loads(cache.read_text(encoding="utf-8"))]
+
     folders = _get_json(CONTENTS_URL)  # samples/pypi: the kind folders and the manifest
     sha = next(entry["sha"] for entry in folders if entry["name"] == kind)
     tree = _get_json(TREE_URL.format(sha=sha))
     if tree.get("truncated"):
         raise SystemExit(f"GitHub truncated the listing of {kind}: too many samples")
-    return [
+    samples = [
         Sample(kind=kind, path=entry["path"], size=entry["size"])
         for entry in tree["tree"]
         if entry["type"] == "blob" and entry["path"].endswith(".zip")
     ]
+    CACHE_DIR.mkdir(exist_ok=True)
+    cache.write_text(json.dumps([asdict(sample) for sample in samples]), encoding="utf-8")
+    return samples
 
 
 def download(sample: Sample) -> bytes:
@@ -102,7 +119,10 @@ def download(sample: Sample) -> bytes:
 
 
 def _get_json(url: str) -> Any:
-    response = http_client.client.get(url)
+    # With a token (any GitHub token, no scopes needed), the limit is 5000 an hour.
+    token = os.environ.get("GITHUB_TOKEN")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    response = http_client.client.get(url, headers=headers)
     response.raise_for_status()  # 403 here usually means GitHub's limit: 60 requests/hour
     return response.json()
 
@@ -117,6 +137,11 @@ def read_sample(sample: Sample, data: bytes) -> tuple[AnalysisContext, str, bool
         paths: list[str] = [info.filename for info in zf.infolist() if not info.is_dir()]
         if len(paths) > archive.MAX_MEMBERS:
             raise SampleError(f"more than {archive.MAX_MEMBERS} files")
+        if len(paths) == 1 and paths[0].endswith(".zip"):
+            # A few samples are a zip inside the zip: read the inner one, also in memory.
+            if zf.getinfo(paths[0]).file_size > archive.MAX_DOWNLOAD_BYTES:
+                raise SampleError("inner zip too big")
+            return read_sample(sample, zf.read(paths[0], pwd=PASSWORD))
 
         archive_type, root = _find_archive_root(paths)
         files: dict[str, str] = _read_files(zf, paths, root)
@@ -149,20 +174,42 @@ def _find_archive_root(paths: list[str]) -> tuple[str, str]:
     """("sdist" or "wheel", the folder the archive's files are under, ending in "/").
 
     The folder above it varies between samples ("2023-03-20-pkg-v1.0/", "tmp/tmpab12/pkg/"),
-    so it's found from what's inside: a wheel has "<name>.dist-info/WHEEL", an sdist
-    has PKG-INFO (or at least setup.py or pyproject.toml) at its top.
+    so it's found from what's inside: a wheel has a "<name>.dist-info/" folder at its
+    top, an sdist has PKG-INFO (or at least setup.py or pyproject.toml).
+
+    Always the shallowest match. Some samples also hold the project's source repo
+    ("sources/<pkg>/") next to the package, and some have the wheel's WHEEL file
+    saved one level too deep (".dist-info/WHEEL/<name>.dist-info/WHEEL"), so the
+    first match isn't necessarily the right one.
     """
+    wheel_roots: list[str] = []
     for path in paths:
-        folder, _, filename = path.rpartition("/")
-        if filename == "WHEEL" and folder.endswith(".dist-info"):
-            return "wheel", folder.rpartition("/")[0] + "/"
+        parts = path.split("/")
+        for i, part in enumerate(parts[:-1]):  # folders only, not the file name
+            if part.endswith(".dist-info"):
+                wheel_roots.append(_folder(parts[:i]))
+                break
+    if wheel_roots:
+        return "wheel", min(wheel_roots, key=lambda root: root.count("/"))
+
     for wanted in ("PKG-INFO", "setup.py", "pyproject.toml"):
-        # The shallowest one: egg-info folders have a PKG-INFO of their own.
+        # egg-info folders have a PKG-INFO of their own.
         candidates = [p for p in paths if p.rpartition("/")[2] == wanted and ".egg-info/" not in p]
         if candidates:
             top = min(candidates, key=lambda p: p.count("/"))
-            return "sdist", top.rpartition("/")[0] + "/"
-    raise SampleError("no WHEEL, PKG-INFO, setup.py or pyproject.toml")
+            return "sdist", _folder(top.split("/")[:-1])
+
+    # No packaging files saved at all, only the package's own: assume the folder that
+    # holds package_info is the top of an installed wheel.
+    package_info = next((p for p in paths if "/package_info-" in p), None)
+    if package_info is not None:
+        return "wheel", _folder(package_info.split("/")[:-1])
+    raise SampleError("no .dist-info folder, PKG-INFO, setup.py, pyproject.toml or package_info")
+
+
+def _folder(parts: list[str]) -> str:
+    """["tmp", "pkg"] -> "tmp/pkg/", and [] -> "" (the zip's top level)."""
+    return "/".join(parts) + "/" if parts else ""
 
 
 def _read_files(zf: zipfile.ZipFile, paths: list[str], root: str) -> dict[str, str]:
@@ -181,8 +228,18 @@ def _read_files(zf: zipfile.ZipFile, paths: list[str], root: str) -> dict[str, s
         total += len(content)
         if total > archive.MAX_TOTAL_BYTES:
             raise SampleError(f"more than {archive.MAX_TOTAL_BYTES} bytes of source")
-        files[path.removeprefix(root)] = content.decode("utf-8", errors="replace")
+        files[_undouble(path.removeprefix(root))] = content.decode("utf-8", errors="replace")
     return files
+
+
+def _undouble(path: str) -> str:
+    """Some samples store each file inside a folder named after it:
+    "pkg/base.py/pkg/base.py". Rules look for exact paths, so keep one copy."""
+    parts = path.split("/")
+    half = len(parts) // 2
+    if len(parts) % 2 == 0 and parts[:half] == parts[half:]:
+        return "/".join(parts[:half])
+    return path
 
 
 def _json(zf: zipfile.ZipFile, path: str) -> Any:
