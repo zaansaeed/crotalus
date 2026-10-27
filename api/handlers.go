@@ -30,7 +30,7 @@ func flaggedHandler(pool *pgxpool.Pool) http.HandlerFunc {
 		// 1. read ?limit=
 		limit := 50                                   // default
 		if s := r.URL.Query().Get("limit"); s != "" { //parse the URL into a dict .Query()
-			n, err := strconv.Atoi(s) // "20" → 20; "abc" → error
+			n, err := strconv.Atoi(s) // "20" -> 20; "abc" -> error
 			if err != nil || n < 1 || n > 500 {
 				http.Error(w, "limit must be 1-500", http.StatusBadRequest)
 				return
