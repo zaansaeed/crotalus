@@ -1,5 +1,9 @@
 package main
 
+import (
+	"time"
+)
+
 type FlaggedRelease struct {
 	Name         string    `json:"name"`
 	Version      string    `json:"version"`

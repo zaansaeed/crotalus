@@ -21,6 +21,9 @@ func main() {
 	}
 	defer pool.Close() // runs when main is done
 
+	//end points
 	http.HandleFunc("GET /health", healthHandler(pool)) // health endpoint
+	http.HandleFunc("GET /flagged", flaggedHandler(pool))
+
 	log.Fatal(http.ListenAndServe(":8080", nil))        // start it; blocks forever
 }
