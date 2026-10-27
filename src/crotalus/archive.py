@@ -91,7 +91,7 @@ def choose_files_to_inspect(
     return sdist, wheel
 
 
-def _wanted(path: str) -> bool:
+def wanted_by_rules(path: str) -> bool:
     """Whether rules want to read this file: .py, .pth and pyproject.toml.
 
     .pth files matter because Python reads every one in site-packages each time the
@@ -158,7 +158,7 @@ def read_members(filename: str, data: bytes) -> dict[str, str]:
         for path, declared_size, handle in _members(filename, data):
             path = path.replace("\\", "/")
             all_paths.append(path)
-            if not _wanted(path) or declared_size > MAX_FILE_BYTES:
+            if not wanted_by_rules(path) or declared_size > MAX_FILE_BYTES:
                 continue
             # Read at most one byte past the limit: the declared size could be a lie.
             content: bytes = handle.read(MAX_FILE_BYTES + 1)  # actual content in bytes

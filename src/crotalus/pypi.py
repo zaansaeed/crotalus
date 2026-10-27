@@ -3,6 +3,7 @@
 - fetch_feed():                the RSS feed of the latest ~100 uploads (the poller)
 - fetch_metadata(name, ver):   one release's info and files (the worker, every release)
 - fetch_first_upload(name):    when the project first appeared (the worker, once per package)
+- fetch_project(name):         the whole project's JSON (fetch_first_upload, eval/benign.py)
 - download(file, max_bytes):   one of a release's files, as bytes (the worker)
 
 All requests go through the shared client in crotalus.http_client.
@@ -19,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import quote
 
 import feedparser
@@ -127,36 +129,44 @@ def fetch_metadata(name: str, version: str) -> ReleaseMetadata:
     url = RELEASE_URL.format(name=name, version=quote(version, safe=""))
     response = _get(url, f"{name} {version}")
     try:
-        data = response.json()
-        info = data["info"]
-        files = tuple(
-            ReleaseFile(
-                filename=raw["filename"],
-                url=raw["url"],
-                packagetype=raw["packagetype"],
-                size=raw["size"],
-                sha256=raw["digests"]["sha256"],
-                uploaded_at=_parse_time(raw["upload_time_iso_8601"]),
-            )
-            for raw in data["urls"]
-        )
-
-        project_urls = dict(info.get("project_urls") or {})
-        if info.get("home_page"):
-            project_urls.setdefault("Homepage", info["home_page"])
-
-        return ReleaseMetadata(
-            name=info["name"],
-            version=info["version"],
-            summary=info.get("summary") or None,  # PyPI uses "" for missing
-            author=info.get("author") or info.get("author_email") or None,
-            project_urls=project_urls,
-            files=files,
-            uploaded_at=min((f.uploaded_at for f in files), default=None),
-        )
+        return parse_release_json(response.json())
     # ValueError also covers invalid JSON (json.JSONDecodeError is a ValueError).
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise PyPIError(f"unexpected response from PyPI for {name} {version}: {exc!r}") from exc
+
+
+def parse_release_json(data: Any) -> ReleaseMetadata:
+    """ReleaseMetadata from PyPI's JSON for one release (RELEASE_URL's response).
+
+    Separate from fetch_metadata so a saved copy can be parsed too (see evaluate.py).
+    Raises KeyError, TypeError, ValueError or AttributeError if it isn't that shape.
+    """
+    info = data["info"]
+    files = tuple(
+        ReleaseFile(
+            filename=raw["filename"],
+            url=raw["url"],
+            packagetype=raw["packagetype"],
+            size=raw["size"],
+            sha256=raw["digests"]["sha256"],
+            uploaded_at=_parse_time(raw["upload_time_iso_8601"]),
+        )
+        for raw in data["urls"]
+    )
+
+    project_urls = dict(info.get("project_urls") or {})
+    if info.get("home_page"):
+        project_urls.setdefault("Homepage", info["home_page"])
+
+    return ReleaseMetadata(
+        name=info["name"],
+        version=info["version"],
+        summary=info.get("summary") or None,  # PyPI uses "" for missing
+        author=info.get("author") or info.get("author_email") or None,
+        project_urls=project_urls,
+        files=files,
+        uploaded_at=min((f.uploaded_at for f in files), default=None),
+    )
 
 
 def fetch_first_upload(name: str) -> datetime | None:
@@ -164,18 +174,31 @@ def fetch_first_upload(name: str) -> datetime | None:
     Fetches entire project json, finds first upload time of every file, and then returns the
     oldest one. Gives one date for the first file in the project, ever. None if it has no files.
     """
-    response = _get(PROJECT_URL.format(name=name), name)
+    data = fetch_project(name)
     try:
-        return min(
-            (
-                _parse_time(raw["upload_time_iso_8601"])
-                for files in response.json()["releases"].values()
-                for raw in files
-            ),
-            default=None,
-        )
+        return first_upload_in(data)
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise PyPIError(f"unexpected response from PyPI for {name}: {exc!r}") from exc
+
+
+def fetch_project(name: str) -> Any:
+    """PyPI's JSON for the whole project: its latest `info` and every version's files."""
+    try:
+        return _get(PROJECT_URL.format(name=name), name).json()
+    except ValueError as exc:  # not JSON
+        raise PyPIError(f"unexpected response from PyPI for {name}: {exc!r}") from exc
+
+
+def first_upload_in(data: Any) -> datetime | None:
+    """The oldest upload time of any file in PyPI's JSON's `releases`. None if no files."""
+    return min(
+        (
+            _parse_time(raw["upload_time_iso_8601"])
+            for files in data["releases"].values()
+            for raw in files
+        ),
+        default=None,
+    )
 
 
 def download(file: ReleaseFile, max_bytes: int) -> bytes:

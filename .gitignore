@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Eval output (eval/evaluate.py --out)
+eval/results/

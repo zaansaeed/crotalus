@@ -66,6 +66,22 @@ services: # each service is a container this project needs
     command: python -m crotalus.triager
     env_file: .env # for GEMINI_API_KEY (and GEMINI_MODEL, if set)
 
+  # The evals (eval/): run only when asked, never on `up`.
+  #   docker compose run --rm eval eval/malicious.py --limit 50 --out eval/results/malicious.csv
+  #   docker compose run --rm eval eval/benign.py --limit 50 --out eval/results/benign.csv
+  # malicious.py downloads real malware samples into memory; running it here keeps
+  # them off this machine. No database needed. Results land in ./eval/results/.
+  eval:
+    <<: *crotalus
+    profiles: ["eval"] # not started by `docker compose up`
+    entrypoint: ["python"] # `run eval <script> ...` appends the script and its arguments
+    restart: "no"
+    depends_on: {} # doesn't need the database
+    env_file: .env # GEMINI_API_KEY, for --triage
+    volumes:
+      # Mounted rather than built into the image, so editing a script needs no rebuild.
+      - ./eval:/app/eval
+
   # The read-only Go API. Its own image (api/Dockerfile), so it doesn't use the
   # shared settings above, which build the Python image.
   api:
