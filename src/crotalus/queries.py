@@ -134,10 +134,15 @@ def delete_triage(conn: Connection, release_id: int) -> None:
 
 def mark_analyzed(conn: Connection, release_id: int, score: int, rules_verdict: Verdict) -> None:
     """'done', with the rules' score and verdict. No LLM verdict yet, so the final
-    verdict starts out as the rules' verdict; the triager may change both later."""
+    verdict starts out as the rules' verdict; the triager may change both later.
+
+    Also when the analysis ran. now() is when this transaction began, which is when
+    the worker claimed the release; clock_timestamp() is the time right now.
+    """
     conn.execute(
         "UPDATE releases SET status = 'done', score = %s, rules_verdict = %s,"
-        " llm_verdict = NULL, final_verdict = %s WHERE id = %s",
+        " llm_verdict = NULL, final_verdict = %s, analysis_started_at = now(),"
+        " analyzed_at = clock_timestamp(), triaged_at = NULL WHERE id = %s",
         (score, rules_verdict, rules_verdict, release_id),
     )
 
@@ -239,6 +244,7 @@ def record_llm_verdict(
 ) -> None:
     """The LLM's verdict, and the final verdict it led to (see scoring.final_verdict)."""
     conn.execute(
-        "UPDATE releases SET llm_verdict = %s, final_verdict = %s WHERE id = %s",
+        "UPDATE releases SET llm_verdict = %s, final_verdict = %s,"
+        " triaged_at = clock_timestamp() WHERE id = %s",
         (llm_verdict, final_verdict, release_id),
     )

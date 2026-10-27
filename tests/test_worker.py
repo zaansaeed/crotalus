@@ -70,6 +70,16 @@ def test_nothing_pending_returns_false(db: Connection) -> None:
     assert analyze_next_release(db) is False
 
 
+def test_records_when_analysis_ran(db: Connection) -> None:
+    add_release(db, "pkg")
+    analyze_next_release(db)
+    row = db.execute(
+        "SELECT first_seen_at <= analysis_started_at, analysis_started_at <= analyzed_at,"
+        " triaged_at IS NULL FROM releases"
+    ).fetchone()
+    assert row == (True, True, True)
+
+
 def test_marks_release_done(db: Connection) -> None:
     add_release(db, "requests")
     assert analyze_next_release(db) is True
