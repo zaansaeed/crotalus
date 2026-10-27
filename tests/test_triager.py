@@ -28,7 +28,7 @@ FINDING = Finding(
 )
 RESULT = TriageResult(
     verdict="benign",
-    confidence=0.8,
+    confidence=0.95,
     reasoning="It runs a README converter.",
     false_positive_rules=("setup_py_install_time",),
     model=MODEL,
