@@ -15,7 +15,7 @@ from crotalus.models import (
     ReleaseFile,
     ReleaseMetadata,
 )
-from crotalus.rules import (
+from crotalus.rules.metadata import (
     late_file_upload,
     missing_metadata,
     no_project_links,

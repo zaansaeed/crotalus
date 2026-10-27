@@ -9,8 +9,8 @@ imports, and so on. Function bodies don't run until they're called. So:
     modules_run_on_import(files)   which files run on import: from each package's
                                    __init__.py (and each top-level module), follow
                                    the imports, as a graph
-    top_level_calls(py_files)      the process calls and network requests in those
-                                   files' top-level code, with evidence
+    installed_package_code(ctx)    the package's own .py files, from what gets
+                                   installed
 
 Used by import_time_code (the files that run on import) and unimported_script_code
 (the package's other files, which only run when someone runs them).
@@ -20,18 +20,9 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Iterator
-from dataclasses import dataclass, field
-from typing import Any
 
 from crotalus.models import AnalysisContext, PyFile
-from crotalus.rules.helpers.static_code_analysis import (
-    NETWORK_REQUESTS,
-    full_name,
-    is_process,
-    read,
-    runs_decoded_or_downloaded_data,
-    snippet,
-)
+from crotalus.rules.helpers.static_code_analysis import full_name, read
 
 # --- Within one file ---------------------------------------------------------------
 
@@ -173,7 +164,7 @@ def _with_parents(module: str) -> set[str]:
     return {".".join(parts[:end]) for end in range(1, len(parts) + 1)}
 
 
-# --- The package's code and its top-level calls ----------------------------------
+# --- The package's own code -------------------------------------------------------
 
 
 # Folders and files that aren't the package's own code. Template folders hold files
@@ -203,63 +194,3 @@ def _package_code(path: str) -> bool:
     if filename in NOT_PACKAGE_CODE_FILES or filename.startswith("test_"):
         return False
     return not any(f in NOT_PACKAGE_CODE_FOLDERS or "template" in f for f in folders)
-
-
-@dataclass
-class TopLevelCalls:
-    """The process calls and network requests in some files' top-level code."""
-
-    process_calls: set[str] = field(default_factory=set)
-    network_calls: set[str] = field(default_factory=set)
-    runs_hidden_data: bool = False  # a process started with decoded or downloaded data
-    locations: list[dict[str, Any]] = field(default_factory=list)  # file, call, line, snippet
-
-    def files(self) -> list[str]:
-        return sorted({location["file"] for location in self.locations})
-
-    def description(self) -> str:
-        """What the calls do, e.g. "starts programs and uses the network"."""
-        behaviours = []
-        if self.process_calls:
-            behaviours.append("starts programs")
-        if self.network_calls:
-            behaviours.append("uses the network")
-        return " and ".join(behaviours)
-
-    def evidence(self, archive_name: str) -> dict[str, Any]:
-        return {
-            "archive": archive_name,
-            "files": self.files(),
-            "process_calls": sorted(self.process_calls),
-            "network_calls": sorted(self.network_calls),
-            "runs_decoded_or_downloaded_data": self.runs_hidden_data,
-            "calls": self.locations[:10],  # the first few is enough to see what it does
-        }
-
-
-def top_level_calls(py_files: dict[str, PyFile]) -> TopLevelCalls:
-    """The process calls and network requests in the files' top-level code.
-
-    Network requests means calls that connect somewhere (NETWORK_REQUESTS), not all
-    of a network module: API clients build settings like httpx.Timeout(...) at the
-    top level, which sends nothing.
-    """
-    found = TopLevelCalls()
-    for path, py_file in sorted(py_files.items()):
-        for call_name, call_node in import_time_calls(py_file):
-            if call_name in NETWORK_REQUESTS:
-                found.network_calls.add(call_name)
-            elif call_name and is_process(call_name):
-                found.process_calls.add(call_name)
-                found.runs_hidden_data |= runs_decoded_or_downloaded_data(call_node, py_file)
-            else:
-                continue
-            found.locations.append(
-                {
-                    "file": path,
-                    "call": call_name,
-                    "line": call_node.lineno,
-                    "snippet": snippet(py_file, call_node),
-                }
-            )
-    return found

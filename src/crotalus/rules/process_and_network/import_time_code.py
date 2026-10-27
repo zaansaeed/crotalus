@@ -10,7 +10,7 @@ machine that installed the new version, before any of its functions are called:
 
 Checks the modules `import pkg` actually loads (modules_run_on_import: each
 package's __init__.py and what it imports, followed through the import graph), and
-in them, the top-level code (top_level_calls):
+in them, the code that runs on import (import_time_calls):
 
 - process calls, or network requests                           -> high
 - both, or a process started with decoded or downloaded data   -> critical
@@ -29,10 +29,15 @@ runs them: unimported_script_code's job. Not followed: imports by a computed nam
 from __future__ import annotations
 
 from crotalus.models import AnalysisContext, Finding, Severity
-from crotalus.rules.helpers.import_time import (
+from crotalus.rules.helpers.import_graph import (
+    import_time_calls,
     installed_package_code,
     modules_run_on_import,
-    top_level_calls,
+)
+from crotalus.rules.helpers.static_code_analysis import (
+    calls_evidence,
+    describe_calls,
+    process_and_network_calls,
 )
 
 
@@ -42,8 +47,8 @@ def check(context: AnalysisContext) -> list[Finding]:
         return []
     archive_name, files = package_code
 
-    found = top_level_calls(modules_run_on_import(files))
-    if not found.locations:
+    found = process_and_network_calls(modules_run_on_import(files), import_time_calls)
+    if not found.calls:
         return []
     critical = found.runs_hidden_data or (found.process_calls and found.network_calls)
     severity: Severity = "critical" if critical else "high"
@@ -51,7 +56,7 @@ def check(context: AnalysisContext) -> list[Finding]:
         Finding(
             rule_id="import_time_code",
             severity=severity,
-            message=f"importing the package {found.description()} ({', '.join(found.files()[:3])})",
-            evidence=found.evidence(archive_name),
+            message=f"importing the package {describe_calls(found)} ({', '.join(found.files[:3])})",
+            evidence=calls_evidence(found, archive_name),
         )
     ]

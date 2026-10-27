@@ -18,12 +18,17 @@ package, once.
 from __future__ import annotations
 
 from crotalus.models import AnalysisContext, Finding, PyFile
-from crotalus.rules.helpers.import_time import (
+from crotalus.rules.helpers.import_graph import (
+    import_time_calls,
     installed_package_code,
     modules_run_on_import,
-    top_level_calls,
 )
-from crotalus.rules.helpers.static_code_analysis import read
+from crotalus.rules.helpers.static_code_analysis import (
+    calls_evidence,
+    describe_calls,
+    process_and_network_calls,
+    read,
+)
 
 
 def check(context: AnalysisContext) -> list[Finding]:
@@ -39,17 +44,17 @@ def check(context: AnalysisContext) -> list[Finding]:
         if py_file is not None:
             not_imported[path] = py_file
 
-    found = top_level_calls(not_imported)
-    if not found.locations:
+    found = process_and_network_calls(not_imported, import_time_calls)
+    if not found.calls:
         return []
     return [
         Finding(
             rule_id="unimported_script_code",
             severity="medium",
             message=(
-                f"a module nothing imports {found.description()} when run"
-                f" ({', '.join(found.files()[:3])})"
+                f"a module nothing imports {describe_calls(found)} when run"
+                f" ({', '.join(found.files[:3])})"
             ),
-            evidence=found.evidence(archive_name),
+            evidence=calls_evidence(found, archive_name),
         )
     ]

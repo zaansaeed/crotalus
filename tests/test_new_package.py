@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from crotalus.models import AnalysisContext, Finding, PackageHistory, Release, ReleaseMetadata
-from crotalus.rules.new_package import check
+from crotalus.rules.metadata.new_package import check
 
 UPLOADED = datetime(2026, 10, 17, 12, 0, tzinfo=UTC)
 

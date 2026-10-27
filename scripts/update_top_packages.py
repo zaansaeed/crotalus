@@ -14,7 +14,7 @@ from pathlib import Path
 import httpx
 
 from crotalus.pypi import normalize_name  # pep normalizer
-from crotalus.rules.typosquat import TOP_PACKAGES_FILE
+from crotalus.rules.metadata.typosquat import TOP_PACKAGES_FILE
 
 URL = "https://hugovk.github.io/top-pypi-packages/top-pypi-packages.min.json"
 COUNT = 5000

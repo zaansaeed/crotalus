@@ -42,9 +42,10 @@ from __future__ import annotations
 
 import ast
 import warnings
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
+from typing import Any
 
-from crotalus.models import AnalysisContext, PyFile
+from crotalus.models import AnalysisContext, ProcessAndNetworkCalls, PyFile
 
 # --- Groups of dangerous names, as full_name resolves them -------------------------
 
@@ -284,3 +285,72 @@ def python_files(context: AnalysisContext) -> Iterator[tuple[str, str, str]]:
         for path, source in contents.files.items():
             if path.endswith(".py"):
                 yield archive, path, source
+
+
+# --- Calls that start programs or use the network ----------------------------------
+# For setup_py_install_time, import_time_code and unimported_script_code.
+
+FindCalls = Callable[[PyFile], Iterable[tuple[str | None, ast.Call]]]
+
+
+def process_and_network_calls(
+    py_files: dict[str, PyFile], find_calls: FindCalls
+) -> ProcessAndNetworkCalls:
+    """The calls in the files that start programs or connect to the network.
+
+    `find_calls` picks which calls count: `calls` (all of them) or `import_time_calls`
+    (the code that runs on import).
+
+    Network means calls that connect somewhere (NETWORK_REQUESTS), not all of a
+    network module: code builds settings like httpx.Timeout(...), which sends nothing.
+    """
+    process_calls: set[str] = set()
+    network_calls: set[str] = set()
+    runs_hidden_data = False
+    calls_found: list[dict[str, Any]] = []
+    for path, py_file in sorted(py_files.items()):
+        for call_name, call_node in sorted(find_calls(py_file), key=lambda call: call[1].lineno):
+            if call_name in NETWORK_REQUESTS:
+                network_calls.add(call_name)
+            elif call_name and is_process(call_name):
+                process_calls.add(call_name)
+                runs_hidden_data |= runs_decoded_or_downloaded_data(call_node, py_file)
+            else:
+                continue
+            calls_found.append(
+                {
+                    "file": path,
+                    "call": call_name,
+                    "line": call_node.lineno,
+                    "snippet": snippet(py_file, call_node),
+                }
+            )
+    return ProcessAndNetworkCalls(
+        files=sorted({call["file"] for call in calls_found}),
+        process_calls=process_calls,
+        network_calls=network_calls,
+        runs_hidden_data=runs_hidden_data,
+        calls=calls_found,
+    )
+
+
+def describe_calls(found: ProcessAndNetworkCalls) -> str:
+    """What the calls do, for a finding's message: "starts programs and uses the network"."""
+    behaviours = []
+    if found.process_calls:
+        behaviours.append("starts programs")
+    if found.network_calls:
+        behaviours.append("uses the network")
+    return " and ".join(behaviours)
+
+
+def calls_evidence(found: ProcessAndNetworkCalls, archive_name: str) -> dict[str, Any]:
+    """The calls as a finding's evidence."""
+    return {
+        "archive": archive_name,
+        "files": found.files,
+        "process_calls": sorted(found.process_calls),
+        "network_calls": sorted(found.network_calls),
+        "runs_decoded_or_downloaded_data": found.runs_hidden_data,
+        "calls": found.calls[:10],  # the first few is enough to see what it does
+    }

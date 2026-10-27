@@ -103,6 +103,18 @@ class PyFile:
     origins: dict[str, set[str]]  # variable -> decoder/network calls its value came from
 
 
+# The calls in some files that start programs or connect to the network. Made by
+# rules/helpers/static_code_analysis.process_and_network_calls for
+# setup_py_install_time, import_time_code and unimported_script_code.
+@dataclass(frozen=True)
+class ProcessAndNetworkCalls:
+    files: list[str]  # the files the calls are in
+    process_calls: set[str]  # full names, e.g. "subprocess.Popen"
+    network_calls: set[str]  # e.g. "requests.post"
+    runs_hidden_data: bool  # a process started with decoded or downloaded data
+    calls: list[dict[str, Any]]  # where each call is: file, call, line, snippet
+
+
 # Everything the rules (and the LLM) get to look at for one release. Built by
 # analysis_context.build_analysis_context. Grows as rules need more (the previous
 # version's diff, ...).

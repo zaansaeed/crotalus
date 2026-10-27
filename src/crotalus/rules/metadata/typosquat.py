@@ -13,7 +13,7 @@ from pathlib import Path
 
 from crotalus.models import AnalysisContext, Finding
 
-TOP_PACKAGES_FILE = Path(__file__).resolve().parents[1] / "data" / "top_packages.txt"
+TOP_PACKAGES_FILE = Path(__file__).resolve().parents[2] / "data" / "top_packages.txt"
 # TOP 5000 most common pypi packages in the last 30 days
 
 # Shorter names are too often a typo away from something popular by chance (six -> sax).

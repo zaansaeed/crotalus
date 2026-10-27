@@ -39,7 +39,7 @@ from crotalus.models import (
     ReleaseFile,
     ReleaseMetadata,
 )
-from crotalus.rules.typosquat import load_top_packages
+from crotalus.rules.metadata.typosquat import load_top_packages
 
 
 def build_context(name: str) -> AnalysisContext:
