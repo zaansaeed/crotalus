@@ -69,17 +69,21 @@ def final_verdict(rules: Verdict, llm: LLMVerdict | None, confidence: float | No
       suspicious); malicious -> likely_malicious; suspicious -> suspicious.
       Only clearing needs the confidence: wrongly clearing hides malware, while wrongly
       escalating just flags a release for a closer look.
-    - "likely_malicious" stays, whatever the LLM says. The LLM reads code written by
-      the attacker, who can try to talk it into "benign" (prompt injection). Limiting
-      it to "suspicious" releases means a fooled LLM can at worst clear a release the
-      rules weren't sure about, never one they were.
+    - "likely_malicious" is never cleared: benign at confidence >= CLEAR_AT_CONFIDENCE
+      only lowers it to suspicious, so it stays flagged. The LLM reads code written by
+      the attacker, who can try to talk it into "benign" (prompt injection). So a
+      fooled LLM can at worst clear a release the rules weren't sure about, and only
+      downgrade one they were.
     """
-    if llm is None or rules != "suspicious":
+    if llm is None or rules == "clean":
         return rules
-    if llm == "benign":
-        if confidence is not None and confidence >= CLEAR_AT_CONFIDENCE:
-            return "clean"
-        return "suspicious"
+    confident_benign = (
+        llm == "benign" and confidence is not None and confidence >= CLEAR_AT_CONFIDENCE
+    )
+    if rules == "likely_malicious":
+        return "suspicious" if confident_benign else "likely_malicious"
+    if confident_benign:
+        return "clean"
     if llm == "malicious":
         return "likely_malicious"
     return "suspicious"

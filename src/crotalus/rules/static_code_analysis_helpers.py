@@ -44,7 +44,7 @@ import ast
 import warnings
 from collections.abc import Iterator
 
-from crotalus.models import AnalysisContext, PyFile
+from crotalus.models import AnalysisContext, PyFile, Severity
 
 # --- Groups of dangerous names, as full_name resolves them -------------------------
 
@@ -249,15 +249,15 @@ def import_time_calls(py_file: PyFile) -> Iterator[tuple[str | None, ast.Call]]:
     so its calls count as well. Code under `if __name__ == "__main__":` only runs
     when the file is executed directly, so it's skipped.
     """
-    functions = {
+    top_level_functions = {
         node.name: node
         for node in py_file.tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
-    to_visit: list[ast.AST] = list(py_file.tree.body)
-    visited_functions: set[str] = set()
-    while to_visit:
-        node = to_visit.pop()
+    nodes_to_visit: list[ast.AST] = list(py_file.tree.body)
+    followed_functions: set[str] = set()  # functions whose body is already queued
+    while nodes_to_visit:
+        node = nodes_to_visit.pop()
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             continue  # defined here, not run here
         if _is_main_guard(node):
@@ -266,13 +266,16 @@ def import_time_calls(py_file: PyFile) -> Iterator[tuple[str | None, ast.Call]]:
             call_name = full_name(node.func, py_file.aliases)
             yield call_name, node
             # f() or Thread(target=f): f's body runs now too. Each function once.
-            started = [node.func, *(kw.value for kw in node.keywords if kw.arg == "target")]
-            for expr in started:
-                if isinstance(expr, ast.Name) and expr.id in functions:
-                    if expr.id not in visited_functions:
-                        visited_functions.add(expr.id)
-                        to_visit.extend(functions[expr.id].body)
-        to_visit.extend(ast.iter_child_nodes(node))
+            functions_run_by_call = [
+                node.func,
+                *(kw.value for kw in node.keywords if kw.arg == "target"),
+            ]
+            for function in functions_run_by_call:
+                if isinstance(function, ast.Name) and function.id in top_level_functions:
+                    if function.id not in followed_functions:
+                        followed_functions.add(function.id)
+                        nodes_to_visit.extend(top_level_functions[function.id].body)
+        nodes_to_visit.extend(ast.iter_child_nodes(node))
 
 
 def _is_main_guard(node: ast.AST) -> bool:
@@ -304,6 +307,24 @@ def origins(expr: ast.expr, py_file: PyFile) -> set[str]:
         elif isinstance(node, ast.Name):
             value_origins |= py_file.origins.get(node.id, set())
     return value_origins
+
+
+def runs_decoded_or_downloaded_data(call_node: ast.Call, py_file: PyFile) -> bool:
+    """Whether any argument of a call holds decoded or downloaded data."""
+    arguments = [*call_node.args, *(kw.value for kw in call_node.keywords)]
+    return any(origins(argument, py_file) for argument in arguments)
+
+
+def code_severity(starts_programs: bool, uses_network: bool, runs_hidden_data: bool) -> Severity:
+    """How bad code that runs on install or import is, for the rules that check it.
+
+    One of these is common in honest packages; together they look like a dropper.
+    """
+    if runs_hidden_data:  # a program run with decoded or downloaded data
+        return "critical"
+    if starts_programs and uses_network:
+        return "high"
+    return "medium"
 
 
 def snippet(py_file: PyFile, node: ast.AST, limit: int = 200) -> str:

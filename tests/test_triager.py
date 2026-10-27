@@ -111,10 +111,10 @@ def test_stores_llm_answer(db: Connection, asked: Asked) -> None:
     assert verdicts(db) == ("suspicious", "benign", "clean")
 
 
-def test_llm_cannot_clear_likely_malicious(db: Connection, asked: Asked) -> None:
+def test_llm_only_lowers_likely_malicious(db: Connection, asked: Asked) -> None:
     add_analyzed_release(db, "pkg", "likely_malicious", score=10)
     triager.triage_next_flagged_release(db, MODEL)  # the fake LLM says benign
-    assert verdicts(db) == ("likely_malicious", "benign", "likely_malicious")
+    assert verdicts(db) == ("likely_malicious", "benign", "suspicious")
 
 
 def test_llm_sees_stored_findings(db: Connection, asked: Asked) -> None:

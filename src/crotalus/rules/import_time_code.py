@@ -11,8 +11,9 @@ machine that installed the new version, before any of its functions are called:
 The same check as setup_py_install_time, for every module of the package, but only
 for code that runs on import (static_code_analysis_helpers.import_time_calls):
 
-- process calls, or network requests                           -> high
-- both, or a process started with decoded or downloaded data   -> critical
+- process calls, or network requests                           -> medium
+- both                                                         -> high
+- a process started with decoded or downloaded data            -> critical
 
 Network requests means calls that connect somewhere (NETWORK_REQUESTS), not all of
 a network module: API clients routinely build settings like httpx.Timeout(...) at
@@ -30,10 +31,11 @@ from typing import Any
 from crotalus.models import AnalysisContext, Finding
 from crotalus.rules.static_code_analysis_helpers import (
     NETWORK_REQUESTS,
+    code_severity,
     import_time_calls,
     is_process,
-    origins,
     read,
+    runs_decoded_or_downloaded_data,
     snippet,
 )
 
@@ -44,33 +46,27 @@ NOT_IMPORTED_FILES = {"setup.py", "conftest.py", "__main__.py"}
 
 
 def check(context: AnalysisContext) -> list[Finding]:
-    archive_name, contents = ("wheel", context.wheel) if context.wheel else ("sdist", context.sdist)
-    if contents is None:
+    archive_name, archive = ("wheel", context.wheel) if context.wheel else ("sdist", context.sdist)
+    if archive is None:
         return []
 
     process_calls: set[str] = set()
     network_calls: set[str] = set()
     runs_hidden_data = False  # a process started with decoded or downloaded data
-    examples: list[dict[str, Any]] = []  # where each call is, for the evidence
-    for path, source in sorted(contents.files.items()):
-        if not _imported(path):
-            continue
-        py_file = read(source)
+    call_locations: list[dict[str, Any]] = []  # where each call is, for the evidence
+    for path, source in sorted(archive.files.items()):
+        py_file = read(source) if _loaded_by_import(path) else None
         if py_file is None:
             continue
         for call_name, call_node in import_time_calls(py_file):
-            if call_name is None:
-                continue
-            if is_process(call_name):
-                process_calls.add(call_name)
-                arguments = [*call_node.args, *(kw.value for kw in call_node.keywords)]
-                if any(origins(argument, py_file) for argument in arguments):
-                    runs_hidden_data = True
-            elif call_name in NETWORK_REQUESTS:
+            if call_name in NETWORK_REQUESTS:
                 network_calls.add(call_name)
+            elif call_name and is_process(call_name):
+                process_calls.add(call_name)
+                runs_hidden_data |= runs_decoded_or_downloaded_data(call_node, py_file)
             else:
                 continue
-            examples.append(
+            call_locations.append(
                 {
                     "file": path,
                     "call": call_name,
@@ -78,34 +74,33 @@ def check(context: AnalysisContext) -> list[Finding]:
                     "snippet": snippet(py_file, call_node),
                 }
             )
-    if not examples:
+    if not call_locations:
         return []
 
-    kinds = []
+    behaviours = []
     if process_calls:
-        kinds.append("starts programs")
+        behaviours.append("starts programs")
     if network_calls:
-        kinds.append("uses the network")
-    files = sorted({example["file"] for example in examples})
-    critical = runs_hidden_data or (process_calls and network_calls)
+        behaviours.append("uses the network")
+    files = sorted({location["file"] for location in call_locations})
     return [
         Finding(
             rule_id="import_time_code",
-            severity="critical" if critical else "high",
-            message=f"importing the package {' and '.join(kinds)} ({', '.join(files[:3])})",
+            severity=code_severity(bool(process_calls), bool(network_calls), runs_hidden_data),
+            message=f"importing the package {' and '.join(behaviours)} ({', '.join(files[:3])})",
             evidence={
                 "archive": archive_name,
                 "files": files,
                 "process_calls": sorted(process_calls),
                 "network_calls": sorted(network_calls),
                 "runs_decoded_or_downloaded_data": runs_hidden_data,
-                "calls": examples[:10],  # the first few is enough to see what it does
+                "calls": call_locations[:10],  # the first few is enough to see what it does
             },
         )
     ]
 
 
-def _imported(path: str) -> bool:
+def _loaded_by_import(path: str) -> bool:
     """Whether a .py file is part of what `import pkg` can load."""
     if not path.endswith(".py"):
         return False

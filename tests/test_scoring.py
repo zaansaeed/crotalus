@@ -64,7 +64,8 @@ def test_typosquat_on_new_package() -> None:
         ("suspicious", "benign", 0.5, "suspicious"),  # but must be sure to clear
         ("suspicious", "suspicious", 0.95, "suspicious"),
         ("suspicious", "malicious", 0.5, "likely_malicious"),  # escalating needs no bar
-        ("likely_malicious", "benign", 0.99, "likely_malicious"),  # never cleared by the LLM
+        ("likely_malicious", "benign", 0.99, "suspicious"),  # only lowered, never cleared
+        ("likely_malicious", "benign", 0.5, "likely_malicious"),  # and only when sure
         ("likely_malicious", "malicious", 0.95, "likely_malicious"),
         ("suspicious", None, None, "suspicious"),  # no opinion yet, or triage failed
         ("clean", None, None, "clean"),  # never triaged
