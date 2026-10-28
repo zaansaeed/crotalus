@@ -59,8 +59,8 @@ def check(context: AnalysisContext) -> list[Finding]:
         return []
 
     findings = []
-    for path, text in context.wheel.files.items(): #only wheel
-        if not path.endswith(".pth") or not _installs_to_site_packages(path):
+    for path, text in context.wheel.pth_files.items(): #only wheel
+        if not _installs_to_site_packages(path):
             continue
         # Exactly the lines Python's site module executes (it doesn't strip leading space).
         executed_lines = [

@@ -4,6 +4,7 @@ import textwrap
 
 import pytest
 
+from crotalus.archive import archive_contents
 from crotalus.models import (
     AnalysisContext,
     ArchiveContents,
@@ -38,7 +39,7 @@ def context(
             return None
         # Dedent only Python, so tests can indent it; .pth whitespace is meaningful.
         files = {p: textwrap.dedent(t) if p.endswith(".py") else t for p, t in files.items()}
-        return ArchiveContents(filename=name, files=files)
+        return archive_contents(name, files)
 
     return AnalysisContext(
         release=Release(id=1, name="pkg", version="1.0"),

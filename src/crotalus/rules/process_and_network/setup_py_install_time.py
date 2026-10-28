@@ -33,10 +33,10 @@ from crotalus.rules.helpers.static_code_analysis import (
 
 
 def check(context: AnalysisContext) -> list[Finding]:
-    if context.sdist is None or "setup.py" not in context.sdist.files:
+    if context.sdist is None or "setup.py" not in context.sdist.python_files:
         return []
 
-    found = process_and_network_calls({"setup.py": context.sdist.files["setup.py"]}, calls)
+    found = process_and_network_calls({"setup.py": context.sdist.python_files["setup.py"]}, calls)
     severity: Severity
     if found.runs_hidden_data:
         severity = "critical"

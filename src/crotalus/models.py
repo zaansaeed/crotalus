@@ -86,11 +86,12 @@ class PackageHistory:
 class ArchiveContents:
     filename: str  # e.g. "pkg-1.0.tar.gz"
 
-    # Path inside the archive -> text, for the files rules read (.py, .pth,
-    # pyproject.toml). An sdist's top folder ("pkg-1.0/") is dropped, so its
-    # setup.py is just "setup.py". Paths are as the archive gives them: a hostile
-    # one like "../../evil.py" is kept as-is (and never written anywhere).
-    files: dict[str, str] = field(default_factory=dict)
+    # Path inside the archive -> the file's text, for the files rules read. An
+    # sdist's top folder ("pkg-1.0/") is dropped, so its setup.py is just "setup.py".
+    # Paths are as the archive gives them: a hostile one like "../../evil.py" is
+    # kept as-is (and never written anywhere). Built by archive.archive_contents.
+    python_files: dict[str, str] = field(default_factory=dict)  # every .py
+    pth_files: dict[str, str] = field(default_factory=dict)  # every .pth
 
 
 # One Python file from an archive, parsed, with what its names mean. Made by

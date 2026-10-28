@@ -282,9 +282,8 @@ def python_files(context: AnalysisContext) -> Iterator[tuple[str, str, str]]:
     for archive, contents in (("sdist", context.sdist), ("wheel", context.wheel)):
         if contents is None:
             continue
-        for path, source in contents.files.items():
-            if path.endswith(".py"):
-                yield archive, path, source
+        for path, source in contents.python_files.items():
+            yield archive, path, source
 
 
 # --- Calls that start programs or use the network ----------------------------------
@@ -312,7 +311,8 @@ def process_and_network_calls(
     runs_hidden_data = False
     calls_found: list[dict[str, Any]] = []
     for path, source in sorted(sources.items()):
-        py_file = read(source)  # replaces the previous file's tree, which is then freed
+        # Replaces the previous file's tree, which is then freed.
+        py_file: PyFile | None = read(source)
         if py_file is None:
             continue
         for call_name, call_node in sorted(find_calls(py_file), key=lambda call: call[1].lineno):

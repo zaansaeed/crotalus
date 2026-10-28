@@ -14,7 +14,7 @@ Archives come from whoever published the release, so they're treated as hostile:
 - Limits on file count, bytes per file and total bytes read stop archive bombs
   (a few KB that decompress to many GB).
 
-Only the files rules care about are read: .py, .pth and pyproject.toml.
+Only the files rules care about are read: .py and .pth.
 """
 
 from __future__ import annotations
@@ -92,15 +92,13 @@ def choose_files_to_inspect(
 
 
 def wanted_by_rules(path: str) -> bool:
-    """Whether rules want to read this file: .py, .pth and pyproject.toml.
+    """Whether rules want to read this file: .py and .pth.
 
     .pth files matter because Python reads every one in site-packages each time the
     interpreter starts, and runs any line starting with 'import'. They only take
-    effect when installed, so in practice that means the wheel. pyproject.toml and
-    setup.py matter in the sdist, where they control the build at install time.
+    effect when installed, so in practice that means the wheel.
     """
-    name = path.rsplit("/", 1)[-1].lower()
-    return name.endswith((".py", ".pth")) or name == "pyproject.toml"
+    return path.lower().endswith((".py", ".pth"))
 
 
 def _members(filename: str, data: bytes) -> Iterator[tuple[str, int, IO[bytes]]]:
@@ -147,7 +145,7 @@ def _strip_top_folder(files: dict[str, str], all_paths: list[str]) -> dict[str, 
 
 
 def read_members(filename: str, data: bytes) -> dict[str, str]:
-    """Path -> text for the .py, .pth and pyproject.toml files in an archive.
+    """Path -> text for the .py and .pth files in an archive.
 
     Raises ArchiveError if the archive is corrupt or too big once decompressed.
     """
@@ -188,4 +186,13 @@ def download_and_read(file: ReleaseFile | None) -> ArchiveContents | None:
     if file is None:
         return None
     data: bytes = pypi.download(file, MAX_DOWNLOAD_BYTES)
-    return ArchiveContents(filename=file.filename, files=read_members(file.filename, data))
+    return archive_contents(file.filename, read_members(file.filename, data))
+
+
+def archive_contents(filename: str, files: dict[str, str]) -> ArchiveContents:
+    """The files read from an archive, sorted into .py and .pth files."""
+    return ArchiveContents(
+        filename=filename,
+        python_files={p: text for p, text in files.items() if not p.lower().endswith(".pth")},
+        pth_files={p: text for p, text in files.items() if p.lower().endswith(".pth")},
+    )

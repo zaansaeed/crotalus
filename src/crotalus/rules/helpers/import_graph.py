@@ -99,7 +99,7 @@ def modules_run_on_import(files: dict[str, str]) -> set[str]:
     next one: parse trees are many times the size of the source, so a big package
     with every tree in memory at once could need gigabytes.
     """
-    path_of_module = {_module_name(path): path for path in files if path.endswith(".py")}
+    path_of_module = {_module_name(path): path for path in files}
     paths_to_visit = [  # the roots: packages and top-level modules
         path
         for module, path in path_of_module.items()
@@ -187,13 +187,11 @@ def installed_package_code(context: AnalysisContext) -> tuple[str, dict[str, str
     if contents is None:
         return None
     return archive_name, {
-        path: source for path, source in contents.files.items() if _package_code(path)
+        path: source for path, source in contents.python_files.items() if _package_code(path)
     }
 
 
 def _package_code(path: str) -> bool:
-    if not path.endswith(".py"):
-        return False
     *folders, filename = path.split("/")
     if filename in NOT_PACKAGE_CODE_FILES or filename.startswith("test_"):
         return False

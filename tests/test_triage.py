@@ -39,7 +39,7 @@ def context(setup_py: str = SETUP_PY, summary: str | None = "A test package") ->
             uploaded_at=datetime(2026, 10, 20, tzinfo=UTC),
         ),
         package_history=PackageHistory(first_uploaded_at=datetime(2026, 10, 18, tzinfo=UTC)),
-        sdist=ArchiveContents(filename="pkg-1.0.tar.gz", files={"setup.py": setup_py}),
+        sdist=ArchiveContents(filename="pkg-1.0.tar.gz", python_files={"setup.py": setup_py}),
     )
 
 
@@ -91,7 +91,7 @@ def test_excerpts_for_findings_about_several_files() -> None:
         release=Release(id=1, name="pkg", version="1.0"),
         metadata=ReleaseMetadata(name="pkg", version="1.0"),
         package_history=PackageHistory(first_uploaded_at=None),
-        wheel=ArchiveContents(filename="pkg-1.0-py3-none-any.whl", files=files),
+        wheel=ArchiveContents(filename="pkg-1.0-py3-none-any.whl", python_files=files),
     )
     finding = Finding(  # like import_time_code: "files", and a file on each call
         rule_id="import_time_code",
@@ -141,7 +141,7 @@ def test_long_prompts_leave_files_out() -> None:
         release=Release(id=1, name="pkg", version="1.0"),
         metadata=ReleaseMetadata(name="pkg", version="1.0"),
         package_history=PackageHistory(),
-        wheel=ArchiveContents(filename="pkg-1.0-py3-none-any.whl", files=files),
+        wheel=ArchiveContents(filename="pkg-1.0-py3-none-any.whl", python_files=files),
     )
     prompt = triage.build_prompt(big, findings)
     assert len(prompt) <= triage.MAX_PROMPT_CHARS + 100

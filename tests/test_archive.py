@@ -110,7 +110,7 @@ def test_reads_sdist_sources() -> None:
     data = make_tar(
         {
             "pkg-1.0/setup.py": b"from setuptools import setup\nsetup()\n",
-            "pkg-1.0/pyproject.toml": b"[build-system]\n",
+            "pkg-1.0/pyproject.toml": b"[build-system]\n",  # no rule reads it: skipped
             "pkg-1.0/pkg/__init__.py": b"VERSION = '1.0'\n",
             "pkg-1.0/README.md": b"# pkg\n",  # not source: skipped
             "pkg-1.0/PKG-INFO": b"Name: pkg\n",
@@ -118,7 +118,6 @@ def test_reads_sdist_sources() -> None:
     )
     assert read_members("pkg-1.0.tar.gz", data) == {
         "setup.py": "from setuptools import setup\nsetup()\n",  # top folder dropped
-        "pyproject.toml": "[build-system]\n",
         "pkg/__init__.py": "VERSION = '1.0'\n",
     }
 
@@ -209,7 +208,7 @@ def test_download_and_read(fake_pypi: FakePyPI) -> None:
     contents = download_and_read(file)
     assert contents is not None
     assert contents.filename == file.filename
-    assert contents.files == {"pkg/__init__.py": "x = 1\n"}
+    assert contents.python_files == {"pkg/__init__.py": "x = 1\n"}
 
 
 def test_load_nothing() -> None:

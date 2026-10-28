@@ -201,9 +201,12 @@ def excerpts_of_flagged_files(
     for (archive, path), flagged_lines in flagged_lines_by_file.items():
         # The archive the finding points at: the sdist's or the wheel's contents.
         contents: ArchiveContents | None = context.sdist if archive == "sdist" else context.wheel
-        if contents is None or path not in contents.files:
+        if contents is None:
             continue
-        excerpt: str = numbered_lines_near_flagged(contents.files[path], flagged_lines)
+        source = contents.python_files.get(path, contents.pth_files.get(path))  # .pth findings too
+        if source is None:
+            continue
+        excerpt: str = numbered_lines_near_flagged(source, flagged_lines)
         if len(excerpt) > MAX_FILE_CHARS:
             excerpt = excerpt[:MAX_FILE_CHARS] + "\n... (cut for length)"
         excerpts.append((f"{archive}: {path}", excerpt))

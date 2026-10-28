@@ -57,7 +57,6 @@ import common
 from crotalus import archive, http_client, pypi, triage
 from crotalus.models import (
     AnalysisContext,
-    ArchiveContents,
     PackageHistory,
     Release,
     ReleaseMetadata,
@@ -159,7 +158,7 @@ def read_sample(sample: Sample, data: bytes) -> tuple[AnalysisContext, str, bool
 
     # The original file's name isn't in the sample; this is only for the LLM prompt.
     suffix = ".tar.gz" if archive_type == "sdist" else "-py3-none-any.whl"
-    contents = ArchiveContents(filename=f"{metadata.name}-{metadata.version}{suffix}", files=files)
+    contents = archive.archive_contents(f"{metadata.name}-{metadata.version}{suffix}", files)
     context = AnalysisContext(
         release=Release(id=0, name=pypi.normalize_name(metadata.name), version=metadata.version),
         metadata=metadata,
