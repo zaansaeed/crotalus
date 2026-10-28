@@ -17,7 +17,7 @@ package, once.
 
 from __future__ import annotations
 
-from crotalus.models import AnalysisContext, Finding, PyFile
+from crotalus.models import AnalysisContext, Finding
 from crotalus.rules.helpers.import_graph import (
     import_time_calls,
     installed_package_code,
@@ -27,7 +27,6 @@ from crotalus.rules.helpers.static_code_analysis import (
     calls_evidence,
     describe_calls,
     process_and_network_calls,
-    read,
 )
 
 
@@ -38,13 +37,10 @@ def check(context: AnalysisContext) -> list[Finding]:
     archive_name, files = package_code
 
     run_on_import = modules_run_on_import(files)
-    not_imported: dict[str, PyFile] = {}
-    for path, source in files.items():
-        py_file = read(source) if path not in run_on_import else None
-        if py_file is not None:
-            not_imported[path] = py_file
-
-    found = process_and_network_calls(not_imported, import_time_calls)
+    found = process_and_network_calls(
+        {path: source for path, source in files.items() if path not in run_on_import},
+        import_time_calls,
+    )
     if not found.calls:
         return []
     return [

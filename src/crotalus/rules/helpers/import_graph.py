@@ -87,13 +87,17 @@ def _is_main_guard(node: ast.AST) -> bool:
 # --- Across the package: the import graph ---------------------------------------
 
 
-def modules_run_on_import(files: dict[str, str]) -> dict[str, PyFile]:
-    """The .py files that run when the package, or any part of it, is imported: path -> PyFile.
+def modules_run_on_import(files: dict[str, str]) -> set[str]:
+    """The paths of the .py files that run when the package, or any part of it, is imported.
 
     Python runs a package's __init__.py when the package is imported, and a top-level
     module (`six.py`) when it is. Those are the roots. Each file that runs then runs
     the modules it imports, and so on: a graph, walked from the roots. A file nothing
     imports, like a Streamlit app or a launcher script, never runs on import.
+
+    Each file is parsed only to read its imports, and its tree is let go before the
+    next one: parse trees are many times the size of the source, so a big package
+    with every tree in memory at once could need gigabytes.
     """
     path_of_module = {_module_name(path): path for path in files if path.endswith(".py")}
     paths_to_visit = [  # the roots: packages and top-level modules
@@ -101,7 +105,7 @@ def modules_run_on_import(files: dict[str, str]) -> dict[str, PyFile]:
         for module, path in path_of_module.items()
         if path.endswith("__init__.py") or "." not in module
     ]
-    run_on_import: dict[str, PyFile] = {}
+    run_on_import: set[str] = set()
     while paths_to_visit:
         path = paths_to_visit.pop()
         if path in run_on_import:
@@ -109,7 +113,7 @@ def modules_run_on_import(files: dict[str, str]) -> dict[str, PyFile]:
         py_file = read(files[path])
         if py_file is None:
             continue
-        run_on_import[path] = py_file
+        run_on_import.add(path)
         for module in imported_modules(py_file, _module_name(path), path.endswith("__init__.py")):
             if module in path_of_module:
                 paths_to_visit.append(path_of_module[module])

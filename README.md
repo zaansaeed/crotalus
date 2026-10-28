@@ -152,7 +152,7 @@ payload = data
 exec(payload)                                     # runs decoded data -> critical
 ```
 
-**The import graph: what runs on `import pkg`.** Within a file, top-level code and
+**The import graph: what runs when the package is imported.** Within a file, top-level code and
 class bodies run on import; function bodies and `if __name__ == "__main__":` don't,
 unless the top level calls the function (or starts it as a thread). Across files,
 `modules_run_on_import` starts from each package's `__init__.py` and follows its

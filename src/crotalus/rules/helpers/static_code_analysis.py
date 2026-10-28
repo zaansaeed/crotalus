@@ -294,21 +294,27 @@ FindCalls = Callable[[PyFile], Iterable[tuple[str | None, ast.Call]]]
 
 
 def process_and_network_calls(
-    py_files: dict[str, PyFile], find_calls: FindCalls
+    sources: dict[str, str], find_calls: FindCalls
 ) -> ProcessAndNetworkCalls:
-    """The calls in the files that start programs or connect to the network.
+    """The calls in the files (path -> source) that start programs or connect to the network.
 
     `find_calls` picks which calls count: `calls` (all of them) or `import_time_calls`
     (the code that runs on import).
 
     Network means calls that connect somewhere (NETWORK_REQUESTS), not all of a
     network module: code builds settings like httpx.Timeout(...), which sends nothing.
+
+    Files are parsed one at a time, and only the calls found are kept, so one parse
+    tree is in memory at a time (they're many times the size of the source).
     """
     process_calls: set[str] = set()
     network_calls: set[str] = set()
     runs_hidden_data = False
     calls_found: list[dict[str, Any]] = []
-    for path, py_file in sorted(py_files.items()):
+    for path, source in sorted(sources.items()):
+        py_file = read(source)  # replaces the previous file's tree, which is then freed
+        if py_file is None:
+            continue
         for call_name, call_node in sorted(find_calls(py_file), key=lambda call: call[1].lineno):
             if call_name in NETWORK_REQUESTS:
                 network_calls.add(call_name)

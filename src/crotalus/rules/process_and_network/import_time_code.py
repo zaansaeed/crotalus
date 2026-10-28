@@ -47,7 +47,11 @@ def check(context: AnalysisContext) -> list[Finding]:
         return []
     archive_name, files = package_code
 
-    found = process_and_network_calls(modules_run_on_import(files), import_time_calls)
+    run_on_import = modules_run_on_import(files)
+    found = process_and_network_calls(
+        {path: source for path, source in files.items() if path in run_on_import},
+        import_time_calls,
+    )
     if not found.calls:
         return []
     critical = found.runs_hidden_data or (found.process_calls and found.network_calls)
