@@ -11,12 +11,13 @@ those names against the groups below.
 
 The flow, for `import base64 as b; data = b.b64decode(x); exec(data)`:
 
-    python_files(context)                → each .py file: ("wheel", "pkg/setup.py", source)
     read(source)                         → PyFile (None if it isn't valid Python 3):
         .tree                            →   the parsed code
         .aliases                         →   {"b": "base64"}
         .origins                         →   {"data": {"base64.b64decode"}}
-    calls(py_file)                       → every call with its full name; keep exec/eval/compile
+    calls(py_file)                       → every call with its full name (or with
+                                           import_time_only, the ones that run on import)
+    dangerous_behaviour("exec")          → "runs_code"
     origins(call_node.args[0], py_file)  → {"base64.b64decode"} → a decoder → critical finding
         get the origin (or the full value) of what this exec/eval calls.
         is it a decoder or network call? -> critical finding
@@ -42,10 +43,10 @@ from __future__ import annotations
 
 import ast
 import warnings
-from collections.abc import Callable, Iterable, Iterator
-from typing import Any
+from collections.abc import Iterator
+from typing import Literal
 
-from crotalus.models import AnalysisContext, ProcessAndNetworkCalls, PyFile
+from crotalus.models import PyFile
 
 # --- Groups of dangerous names, as full_name resolves them -------------------------
 
@@ -126,13 +127,34 @@ NETWORK_REQUESTS = {
 }
 
 
-def is_network(name: str) -> bool:
-    """Whether `name` is in a network module: "requests.get" is in "requests"."""
+DangerousBehaviour = Literal["runs_code", "decodes_data", "network_request", "starts_process"]
+
+
+def dangerous_behaviour(call_name: str | None) -> DangerousBehaviour | None:
+    """What a call does, if it's one of the groups above. None for everything else:
+    most calls (print, os.path.join, setup(...)), and names only known at runtime.
+    """
+    if call_name is None:
+        return None
+    if call_name in RUN_CODE:
+        return "runs_code"
+    if call_name in DECODERS:
+        return "decodes_data"
+    if call_name in NETWORK_REQUESTS:
+        return "network_request"
+    if call_name in PROCESS or call_name == "subprocess" or call_name.startswith("subprocess."):
+        return "starts_process"
+    return None
+
+
+def _in_network_module(name: str) -> bool:
+    """Whether `name` is in a network module: "requests.get" is in "requests".
+
+    Wider than NETWORK_REQUESTS, for where data comes from: in
+    `s = requests.Session(); exec(s.get(u).text)`, Session() connects to nothing,
+    but what `s` fetches is still downloaded.
+    """
     return any(name == m or name.startswith(m + ".") for m in NETWORK_MODULES)
-
-
-def is_process(name: str) -> bool:
-    return name in PROCESS or name == "subprocess" or name.startswith("subprocess.")
 
 
 # --- Reading code ------------------------------------------------------------------
@@ -234,11 +256,64 @@ def full_name(func: ast.expr, aliases: dict[str, str]) -> str | None:
     return resolved
 
 
-def calls(py_file: PyFile) -> Iterator[tuple[str | None, ast.Call]]:
-    """(full name, call node) for every call in the file."""
-    for node in ast.walk(py_file.tree):
+def calls(py_file: PyFile, import_time_only: bool = False) -> Iterator[tuple[str | None, ast.Call]]:
+    """(full name, call node) for every call in the file, or with `import_time_only`,
+    only the calls that run when the module is imported (import_time_nodes).
+    """
+    nodes = import_time_nodes(py_file) if import_time_only else ast.walk(py_file.tree)
+    for node in nodes:
         if isinstance(node, ast.Call):
             yield full_name(node.func, py_file.aliases), node
+
+
+def import_time_nodes(py_file: PyFile) -> Iterator[ast.AST]:
+    """Every node of the file that runs when the module is imported.
+
+    That's code at the top level of the file and in class bodies, but not inside
+    functions, which only run when called. Except: a function of this file that the
+    top level calls, or starts as a thread (`Thread(target=f)`), runs on import too,
+    so its body counts as well. Code under `if __name__ == "__main__":` only runs
+    when the file is executed directly, so it's skipped.
+    """
+    top_level_functions = {
+        node.name: node
+        for node in py_file.tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    nodes_to_visit: list[ast.AST] = list(py_file.tree.body)
+    followed_functions: set[str] = set()  # functions whose body is already queued
+    while nodes_to_visit:
+        node = nodes_to_visit.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue  # defined here, not run here
+        if _is_main_guard(node):
+            continue
+        yield node
+        if isinstance(node, ast.Call):
+            # f() or Thread(target=f): f's body runs now too. Each function once.
+            functions_run_by_call = [
+                node.func,
+                *(kw.value for kw in node.keywords if kw.arg == "target"),
+            ]
+            for function in functions_run_by_call:
+                if isinstance(function, ast.Name) and function.id in top_level_functions:
+                    if function.id not in followed_functions:
+                        followed_functions.add(function.id)
+                        nodes_to_visit.extend(top_level_functions[function.id].body)
+        nodes_to_visit.extend(ast.iter_child_nodes(node))
+
+
+def _is_main_guard(node: ast.AST) -> bool:
+    """`if __name__ == "__main__":`"""
+    return (
+        isinstance(node, ast.If)
+        and isinstance(node.test, ast.Compare)
+        and isinstance(node.test.left, ast.Name)
+        and node.test.left.id == "__name__"
+        and len(node.test.comparators) == 1
+        and isinstance(node.test.comparators[0], ast.Constant)
+        and node.test.comparators[0].value == "__main__"
+    )
 
 
 # --- Where values come from --------------------------------------------------------
@@ -255,108 +330,17 @@ def origins(expr: ast.expr, py_file: PyFile) -> set[str]:
     for node in ast.walk(expr):
         if isinstance(node, ast.Call):
             call_name = full_name(node.func, py_file.aliases)
-            if call_name and (call_name in DECODERS or is_network(call_name)):
+            if call_name and (call_name in DECODERS or _in_network_module(call_name)):
                 value_origins.add(call_name)
         elif isinstance(node, ast.Name):
             value_origins |= py_file.origins.get(node.id, set())
     return value_origins
 
 
-def runs_decoded_or_downloaded_data(call_node: ast.Call, py_file: PyFile) -> bool:
-    """Whether any argument of a call holds decoded or downloaded data."""
-    arguments = [*call_node.args, *(kw.value for kw in call_node.keywords)]
-    return any(origins(argument, py_file) for argument in arguments)
-
-
-# --- For evidence and rules --------------------------------------------------------
+# --- For evidence ------------------------------------------------------------------
 
 
 def snippet(py_file: PyFile, node: ast.AST, limit: int = 200) -> str:
     """The source text of `node`, shortened for evidence."""
     text = ast.get_source_segment(py_file.source, node) or ""
     return text if len(text) <= limit else text[:limit] + "..."
-
-
-def python_files(context: AnalysisContext) -> Iterator[tuple[str, str, str]]:
-    """(archive, path, source) for every .py file in the sdist and wheel."""
-    for archive, contents in (("sdist", context.sdist), ("wheel", context.wheel)):
-        if contents is None:
-            continue
-        for path, source in contents.python_files.items():
-            yield archive, path, source
-
-
-# --- Calls that start programs or use the network ----------------------------------
-# For setup_py_install_time, import_time_code and unimported_script_code.
-
-FindCalls = Callable[[PyFile], Iterable[tuple[str | None, ast.Call]]]
-
-
-def process_and_network_calls(
-    sources: dict[str, str], find_calls: FindCalls
-) -> ProcessAndNetworkCalls:
-    """The calls in the files (path -> source) that start programs or connect to the network.
-
-    `find_calls` picks which calls count: `calls` (all of them) or `import_time_calls`
-    (the code that runs on import).
-
-    Network means calls that connect somewhere (NETWORK_REQUESTS), not all of a
-    network module: code builds settings like httpx.Timeout(...), which sends nothing.
-
-    Files are parsed one at a time, and only the calls found are kept, so one parse
-    tree is in memory at a time (they're many times the size of the source).
-    """
-    process_calls: set[str] = set()
-    network_calls: set[str] = set()
-    runs_hidden_data = False
-    calls_found: list[dict[str, Any]] = []
-    for path, source in sorted(sources.items()):
-        # Replaces the previous file's tree, which is then freed.
-        py_file: PyFile | None = read(source)
-        if py_file is None:
-            continue
-        for call_name, call_node in sorted(find_calls(py_file), key=lambda call: call[1].lineno):
-            if call_name in NETWORK_REQUESTS:
-                network_calls.add(call_name)
-            elif call_name and is_process(call_name):
-                process_calls.add(call_name)
-                runs_hidden_data |= runs_decoded_or_downloaded_data(call_node, py_file)
-            else:
-                continue
-            calls_found.append(
-                {
-                    "file": path,
-                    "call": call_name,
-                    "line": call_node.lineno,
-                    "snippet": snippet(py_file, call_node),
-                }
-            )
-    return ProcessAndNetworkCalls(
-        files=sorted({call["file"] for call in calls_found}),
-        process_calls=process_calls,
-        network_calls=network_calls,
-        runs_hidden_data=runs_hidden_data,
-        calls=calls_found,
-    )
-
-
-def describe_calls(found: ProcessAndNetworkCalls) -> str:
-    """What the calls do, for a finding's message: "starts programs and uses the network"."""
-    behaviours = []
-    if found.process_calls:
-        behaviours.append("starts programs")
-    if found.network_calls:
-        behaviours.append("uses the network")
-    return " and ".join(behaviours)
-
-
-def calls_evidence(found: ProcessAndNetworkCalls, archive_name: str) -> dict[str, Any]:
-    """The calls as a finding's evidence."""
-    return {
-        "archive": archive_name,
-        "files": found.files,
-        "process_calls": sorted(found.process_calls),
-        "network_calls": sorted(found.network_calls),
-        "runs_decoded_or_downloaded_data": found.runs_hidden_data,
-        "calls": found.calls[:10],  # the first few is enough to see what it does
-    }

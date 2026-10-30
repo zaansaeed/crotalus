@@ -21,7 +21,7 @@ from crotalus.pypi import PyPIUnavailable, ReleaseNotFound
 
 MODEL = "test-model"
 FINDING = Finding(
-    rule_id="setup_py_install_time",
+    rule_id="install_time_code",
     severity="high",
     message="setup.py starts programs at install time",
     evidence={"archive": "sdist", "file": "setup.py", "calls": []},
@@ -30,7 +30,7 @@ RESULT = TriageResult(
     verdict="benign",
     confidence=0.95,
     reasoning="It runs a README converter.",
-    false_positive_rules=("setup_py_install_time",),
+    false_positive_rules=("install_time_code",),
     model=MODEL,
     prompt_version=triage.PROMPT_VERSION,
 )
@@ -105,7 +105,7 @@ def test_stores_llm_answer(db: Connection, asked: Asked) -> None:
     assert triager.triage_next_flagged_release(db, MODEL) is True
 
     assert triage_rows(db) == [
-        (release_id, MODEL, "done", "benign", ["setup_py_install_time"], None)
+        (release_id, MODEL, "done", "benign", ["install_time_code"], None)
     ]
     # The rules' verdict is kept; the final verdict follows the LLM (suspicious -> clean).
     assert verdicts(db) == ("suspicious", "benign", "clean")

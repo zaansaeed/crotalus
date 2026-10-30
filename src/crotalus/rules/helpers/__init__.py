@@ -1,6 +1,7 @@
 """Helpers shared by the code rules.
 
-static_code_analysis   reading code: names, aliases, where values come from
-import_graph           what runs when a package is imported (used by
-                       import_time_code and unimported_script_code)
+static_code_analysis   reading one file: names, aliases, calls, what runs on
+                       import, where values come from
+import_graph           which files run when a package is installed or imported
+                       (used by process_and_network_code)
 """

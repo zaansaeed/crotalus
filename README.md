@@ -117,7 +117,7 @@ Each rule is `check(context) -> list[Finding]`; a finding has a severity (`low` 
 
 | Rule | When it runs | One kind (process or network) | Both, or a process run with decoded data |
 |---|---|---|---|
-| `setup_py_install_time` | `pip install` (the sdist's `setup.py`) | medium | high / critical |
+| `install_time_code` | `pip install` (the sdist's `setup.py` and the modules it imports) | medium | high / critical |
 | `import_time_code` | every `import pkg` | **high** | critical |
 | `unimported_script_code` | only when someone runs the script | medium | medium |
 
@@ -294,7 +294,7 @@ GET /releases/examplepkg/1.0.0
 {
   "name": "examplepkg", "version": "1.0.0", "score": 7,
   "rules_verdict": "suspicious", "llm_verdict": "malicious", "final_verdict": "likely_malicious",
-  "findings": [{"rule_id": "setup_py_install_time", "severity": "...", "message": "...", "evidence": {...}}, ...],
+  "findings": [{"rule_id": "install_time_code", "severity": "...", "message": "...", "evidence": {...}}, ...],
   "triage": {"verdict": "malicious", "confidence": ..., "reasoning": "...", ...}
 }
 ```

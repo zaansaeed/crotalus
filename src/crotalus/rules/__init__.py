@@ -24,11 +24,7 @@ from crotalus.rules.metadata import (
     suspicious_links,
     typosquat,
 )
-from crotalus.rules.process_and_network import (
-    import_time_code,
-    setup_py_install_time,
-    unimported_script_code,
-)
+from crotalus.rules.process_and_network import process_and_network_code
 
 Rule = Callable[[AnalysisContext], list[Finding]]
 
@@ -44,8 +40,6 @@ RULES: list[Rule] = [
     # hidden_code/
     hidden_code_exec.check,
     pth_import_running_code.check,
-    # process_and_network/
-    setup_py_install_time.check,
-    import_time_code.check,
-    unimported_script_code.check,
+    # process_and_network/: install_time_code, import_time_code, unimported_script_code
+    process_and_network_code.check,
 ]

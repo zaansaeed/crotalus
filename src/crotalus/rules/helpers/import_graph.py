@@ -1,123 +1,72 @@
-"""What runs when a package is imported: within one file, and across the package.
+"""Which files run when a package is installed or imported: the import graph.
 
 Importing a package runs its __init__.py, top to bottom, then every module it
-imports, and so on. Function bodies don't run until they're called. So:
+imports, and so on (within one file, static_code_analysis.import_time_nodes says
+which code runs). So:
 
-    import_time_nodes(py_file)     the code in one file that runs on import: its top
-                                   level and class bodies, plus same-file functions
-                                   that code calls (or starts as a thread)
     modules_run_on_import(files)   which files run on import: from each package's
                                    __init__.py (and each top-level module), follow
                                    the imports, as a graph
+    modules_run_on_install(files)  which sdist files run on install: the same graph,
+                                   from setup.py
     installed_package_code(ctx)    the package's own .py files, from what gets
                                    installed
 
-Used by import_time_code (the files that run on import) and unimported_script_code
-(the package's other files, which only run when someone runs them).
+Used by process_and_network/process_and_network_code.
 """
 
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterator
 
 from crotalus.models import AnalysisContext, PyFile
-from crotalus.rules.helpers.static_code_analysis import full_name, read
+from crotalus.rules.helpers.static_code_analysis import import_time_nodes, read
 
-# --- Within one file ---------------------------------------------------------------
-
-
-def import_time_calls(py_file: PyFile) -> Iterator[tuple[str | None, ast.Call]]:
-    """(full name, call node) for the calls that run when the module is imported."""
-    for node in import_time_nodes(py_file):
-        if isinstance(node, ast.Call):
-            yield full_name(node.func, py_file.aliases), node
-
-
-def import_time_nodes(py_file: PyFile) -> Iterator[ast.AST]:
-    """Every node of the file that runs when the module is imported.
-
-    That's code at the top level of the file and in class bodies, but not inside
-    functions, which only run when called. Except: a function of this file that the
-    top level calls, or starts as a thread (`Thread(target=f)`), runs on import too,
-    so its body counts as well. Code under `if __name__ == "__main__":` only runs
-    when the file is executed directly, so it's skipped.
-    """
-    top_level_functions = {
-        node.name: node
-        for node in py_file.tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    nodes_to_visit: list[ast.AST] = list(py_file.tree.body)
-    followed_functions: set[str] = set()  # functions whose body is already queued
-    while nodes_to_visit:
-        node = nodes_to_visit.pop()
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-            continue  # defined here, not run here
-        if _is_main_guard(node):
-            continue
-        yield node
-        if isinstance(node, ast.Call):
-            # f() or Thread(target=f): f's body runs now too. Each function once.
-            functions_run_by_call = [
-                node.func,
-                *(kw.value for kw in node.keywords if kw.arg == "target"),
-            ]
-            for function in functions_run_by_call:
-                if isinstance(function, ast.Name) and function.id in top_level_functions:
-                    if function.id not in followed_functions:
-                        followed_functions.add(function.id)
-                        nodes_to_visit.extend(top_level_functions[function.id].body)
-        nodes_to_visit.extend(ast.iter_child_nodes(node))
-
-
-def _is_main_guard(node: ast.AST) -> bool:
-    """`if __name__ == "__main__":`"""
-    return (
-        isinstance(node, ast.If)
-        and isinstance(node.test, ast.Compare)
-        and isinstance(node.test.left, ast.Name)
-        and node.test.left.id == "__name__"
-        and len(node.test.comparators) == 1
-        and isinstance(node.test.comparators[0], ast.Constant)
-        and node.test.comparators[0].value == "__main__"
-    )
-
-
-# --- Across the package: the import graph ---------------------------------------
+# --- The import graph -------------------------------------------------------------
 
 
 def modules_run_on_import(files: dict[str, str]) -> set[str]:
     """The paths of the .py files that run when the package, or any part of it, is imported.
 
     Python runs a package's __init__.py when the package is imported, and a top-level
-    module (`six.py`) when it is. Those are the roots. Each file that runs then runs
-    the modules it imports, and so on: a graph, walked from the roots. A file nothing
-    imports, like a Streamlit app or a launcher script, never runs on import.
+    module (`six.py`) when it is. Those are the roots. A file nothing imports, like a
+    Streamlit app or a launcher script, never runs on import.
+    """
+    roots = [
+        path for path in files if path.endswith("__init__.py") or "." not in _module_name(path)
+    ]
+    return modules_run_from(roots, files)
+
+
+def modules_run_on_install(sdist_files: dict[str, str]) -> set[str]:
+    """The paths of the sdist's .py files that run when pip installs it: setup.py,
+    and the modules it imports (`from mypkg import __version__` runs mypkg/__init__.py).
+    """
+    return modules_run_from(["setup.py"], sdist_files) if "setup.py" in sdist_files else set()
+
+
+def modules_run_from(roots: list[str], files: dict[str, str]) -> set[str]:
+    """The roots, every file they import, every file those import, and so on.
 
     Each file is parsed only to read its imports, and its tree is let go before the
     next one: parse trees are many times the size of the source, so a big package
     with every tree in memory at once could need gigabytes.
     """
     path_of_module = {_module_name(path): path for path in files}
-    paths_to_visit = [  # the roots: packages and top-level modules
-        path
-        for module, path in path_of_module.items()
-        if path.endswith("__init__.py") or "." not in module
-    ]
-    run_on_import: set[str] = set()
+    paths_to_visit = list(roots)
+    run: set[str] = set()
     while paths_to_visit:
         path = paths_to_visit.pop()
-        if path in run_on_import:
+        if path in run:
             continue
         py_file = read(files[path])
         if py_file is None:
             continue
-        run_on_import.add(path)
+        run.add(path)
         for module in imported_modules(py_file, _module_name(path), path.endswith("__init__.py")):
             if module in path_of_module:
                 paths_to_visit.append(path_of_module[module])
-    return run_on_import
+    return run
 
 
 def imported_modules(py_file: PyFile, module: str, is_package: bool) -> set[str]:

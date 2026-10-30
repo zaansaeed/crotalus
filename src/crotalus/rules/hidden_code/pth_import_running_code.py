@@ -10,7 +10,8 @@ imported. So one line like
 runs on every startup. A few honest packages do this (setuptools' distutils
 shim, coverage tools, editable installs), so:
 
-- the executed lines call run-code, decoder, process or network names -> critical
+- the executed lines run code, decode data, start a process or make a network
+  request (static_code_analysis.dangerous_behaviour)                   -> critical
 - otherwise (they only import, or make harmless calls)                  -> medium
 
 Only wheels count: a .pth file does nothing until it's installed into site-packages,
@@ -20,14 +21,7 @@ and only files installed to its top level are read there.
 from __future__ import annotations
 
 from crotalus.models import AnalysisContext, Finding
-from crotalus.rules.helpers.static_code_analysis import (
-    DECODERS,
-    RUN_CODE,
-    calls,
-    is_network,
-    is_process,
-    read,
-)
+from crotalus.rules.helpers.static_code_analysis import calls, dangerous_behaviour, read
 
 
 def _installs_to_site_packages(path: str) -> bool:
@@ -42,15 +36,6 @@ def _installs_to_site_packages(path: str) -> bool:
         len(folders) == 3
         and folders[0].endswith(".data")
         and folders[1] in ("purelib", "platlib")
-    )
-
-
-def _is_dangerous(call_name: str) -> bool:
-    return (
-        call_name in RUN_CODE
-        or call_name in DECODERS
-        or is_network(call_name)
-        or is_process(call_name)
     )
 
 
@@ -77,7 +62,7 @@ def check(context: AnalysisContext) -> list[Finding]:
             if py_file is None:
                 continue  # would fail when Python runs it, so it does nothing
             for call_name, _ in calls(py_file):
-                if call_name and _is_dangerous(call_name):
+                if call_name and dangerous_behaviour(call_name):
                     dangerous_calls.add(call_name)
 
         findings.append(

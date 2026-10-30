@@ -16,11 +16,9 @@ from __future__ import annotations
 from crotalus.models import AnalysisContext, Finding
 from crotalus.rules.helpers.static_code_analysis import (
     DECODERS,
-    RUN_CODE,
     calls,
-    is_network,
+    dangerous_behaviour,
     origins,
-    python_files,
     read,
     snippet,
 )
@@ -28,44 +26,45 @@ from crotalus.rules.helpers.static_code_analysis import (
 
 def check(context: AnalysisContext) -> list[Finding]:
     findings = []
-    for archive, path, source in python_files(context):
-        # Running code needs exec or eval, and even `e = exec` contains the word, so
-        # files without either can be skipped without parsing (the slow part).
-        if "exec" not in source and "eval" not in source:
+    for archive, contents in (("sdist", context.sdist), ("wheel", context.wheel)):
+        if contents is None:
             continue
-        py_file = read(source)
-        if py_file is None:
-            continue
-
-        for call_name, call_node in calls(py_file):
-            if call_name not in RUN_CODE or not call_node.args:
+        for path, source in contents.python_files.items():
+            # Running code needs exec or eval, and even `e = exec` contains the word, so
+            # files without either can be skipped without parsing (the slow part).
+            if "exec" not in source and "eval" not in source:
                 continue
-            # Where the code being run came from (only the first argument is code).
-            code_origins = origins(call_node.args[0], py_file)
-            decoders = sorted(origin for origin in code_origins if origin in DECODERS)
-            network = sorted(origin for origin in code_origins if is_network(origin))
-            if not decoders and not network:
+            py_file = read(source)
+            if py_file is None:
                 continue
 
-            kinds = []
-            if decoders:
-                kinds.append("decoded")
-            if network:
-                kinds.append("network")
-            findings.append(
-                Finding(
-                    rule_id="hidden_code_exec",
-                    severity="critical",
-                    message=f"{call_name}() runs {' and '.join(kinds)} code in {path}",
-                    evidence={
-                        "archive": archive,
-                        "file": path,
-                        "line": call_node.lineno,
-                        "kinds": kinds,
-                        "decoders": decoders,
-                        "network": network,
-                        "snippet": snippet(py_file, call_node),
-                    },
+            for call_name, call_node in calls(py_file):
+                if dangerous_behaviour(call_name) != "runs_code" or not call_node.args:
+                    continue
+                # Where the code being run came from (only the first argument is code):
+                # origins are decoder calls, or calls into a network module.
+                code_origins = origins(call_node.args[0], py_file)
+                decoders = sorted(origin for origin in code_origins if origin in DECODERS)
+                network = sorted(origin for origin in code_origins if origin not in DECODERS)
+                if not decoders and not network:
+                    continue
+
+                findings.append(
+                    Finding(
+                        rule_id="hidden_code_exec",
+                        severity="critical",
+                        message=(
+                            f"{call_name}() runs code from {', '.join(decoders + network)}"
+                            f" in {path}"
+                        ),
+                        evidence={
+                            "archive": archive,
+                            "file": path,
+                            "line": call_node.lineno,
+                            "decoders": decoders,
+                            "network": network,
+                            "snippet": snippet(py_file, call_node),
+                        },
+                    )
                 )
-            )
     return findings
