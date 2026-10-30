@@ -4,10 +4,10 @@ import textwrap
 
 import pytest
 
-from crotalus.archive import archive_contents
+from crotalus.distribution import distribution_contents
 from crotalus.models import (
     AnalysisContext,
-    ArchiveContents,
+    DistributionContents,
     Finding,
     PackageHistory,
     Release,
@@ -19,9 +19,9 @@ from crotalus.rules.hidden_code import hidden_code_exec, pth_import_running_code
 from crotalus.rules.process_and_network import process_and_network_code
 
 
-def call_names(source: str) -> list[str | None]:
-    """Full names of every call in `source`, in the order they appear."""
-    py_file = read(textwrap.dedent(source))
+def call_names(file_contents: str) -> list[str | None]:
+    """Full names of every call in `file_contents`, in the order they appear."""
+    py_file = read(textwrap.dedent(file_contents))
     assert py_file is not None
     in_order = sorted(calls(py_file), key=lambda c: (c[1].lineno, c[1].col_offset))
     return [call_name for call_name, _ in in_order]
@@ -30,12 +30,12 @@ def call_names(source: str) -> list[str | None]:
 def context(
     sdist: dict[str, str] | None = None, wheel: dict[str, str] | None = None
 ) -> AnalysisContext:
-    def contents(name: str, files: dict[str, str] | None) -> ArchiveContents | None:
+    def contents(name: str, files: dict[str, str] | None) -> DistributionContents | None:
         if files is None:
             return None
         # Dedent only Python, so tests can indent it; .pth whitespace is meaningful.
         files = {p: textwrap.dedent(t) if p.endswith(".py") else t for p, t in files.items()}
-        return archive_contents(name, files)
+        return distribution_contents(name, files)
 
     return AnalysisContext(
         release=Release(id=1, name="pkg", version="1.0"),
@@ -54,7 +54,7 @@ def rule_ids(findings: list[Finding]) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    ("source", "expected"),
+    ("file_contents", "expected"),
     [
         ("exec(x)", "exec"),
         ("import base64 as b\nb.b64decode(x)", "base64.b64decode"),
@@ -67,8 +67,8 @@ def rule_ids(findings: list[Finding]) -> list[str]:
         ("__import__('subprocess').run(x)", "subprocess.run"),
     ],
 )
-def test_resolves_call(source: str, expected: str) -> None:
-    assert expected in call_names(source)
+def test_resolves_call(file_contents: str, expected: str) -> None:
+    assert expected in call_names(file_contents)
 
 
 def test_runtime_names_are_unknown() -> None:
@@ -77,7 +77,7 @@ def test_runtime_names_are_unknown() -> None:
 
 
 def test_origins_follow_variables() -> None:
-    source = textwrap.dedent(
+    file_contents = textwrap.dedent(
         """
         import base64, zlib
         a = base64.b64decode(blob)
@@ -85,7 +85,7 @@ def test_origins_follow_variables() -> None:
         c = b
         """
     )
-    py_file = read(source)
+    py_file = read(file_contents)
     assert py_file is not None
     assert py_file.origins["c"] == {"base64.b64decode", "zlib.decompress"}
 
@@ -98,7 +98,7 @@ def test_origins_follow_unpacking() -> None:
 
 def test_attribute_assignment_does_not_taint_object() -> None:
     # Like fused's header.py: `self.x = downloaded` used to taint all of `self`.
-    source = textwrap.dedent(
+    file_contents = textwrap.dedent(
         """
         import requests
         class Header:
@@ -109,10 +109,10 @@ def test_attribute_assignment_does_not_taint_object() -> None:
                 exec(compile(self.other_code, "x", "exec"), self.namespace)
         """
     )
-    py_file = read(source)
+    py_file = read(file_contents)
     assert py_file is not None
     assert "self" not in py_file.origins and "url" not in py_file.origins
-    assert hidden_code_exec.check(context(wheel={"pkg/header.py": source})) == []
+    assert hidden_code_exec.check(context(wheel={"pkg/header.py": file_contents})) == []
 
 
 @pytest.mark.parametrize(
@@ -141,7 +141,7 @@ def test_invalid_python_is_skipped() -> None:
 
 
 @pytest.mark.parametrize(
-    ("source", "decoders", "network"),
+    ("file_contents", "decoders", "network"),
     [
         ("import base64\nexec(base64.b64decode('aW1wb3J0IG9z'))", ["base64.b64decode"], []),
         (
@@ -170,8 +170,8 @@ def test_invalid_python_is_skipped() -> None:
         ),
     ],
 )
-def test_hidden_code_exec(source: str, decoders: list[str], network: list[str]) -> None:
-    findings = hidden_code_exec.check(context(wheel={"pkg/__init__.py": source}))
+def test_hidden_code_exec(file_contents: str, decoders: list[str], network: list[str]) -> None:
+    findings = hidden_code_exec.check(context(wheel={"pkg/__init__.py": file_contents}))
     assert rule_ids(findings) == ["hidden_code_exec"]
     assert findings[0].severity == "critical"
     assert findings[0].evidence["decoders"] == decoders
@@ -180,7 +180,7 @@ def test_hidden_code_exec(source: str, decoders: list[str], network: list[str]) 
 
 
 @pytest.mark.parametrize(
-    "source",
+    "file_contents",
     [
         "exec('print(1)')",  # visible code
         "exec(template)",  # unknown origin: dataclasses, template engines do this
@@ -189,15 +189,15 @@ def test_hidden_code_exec(source: str, decoders: list[str], network: list[str]) 
         "import base64\nexec('x = 1', {'decode': base64.b64decode})",  # decoder isn't the code
     ],
 )
-def test_not_hidden_code(source: str) -> None:
-    assert hidden_code_exec.check(context(wheel={"pkg/__init__.py": source})) == []
+def test_not_hidden_code(file_contents: str) -> None:
+    assert hidden_code_exec.check(context(wheel={"pkg/__init__.py": file_contents})) == []
 
 
 def test_hidden_code_in_sdist_setup_py() -> None:
     findings = hidden_code_exec.check(
         context(sdist={"setup.py": "import base64\nexec(base64.b64decode(x))\n"})
     )
-    assert findings[0].evidence["archive"] == "sdist"
+    assert findings[0].evidence["distribution"] == "sdist"
     assert findings[0].evidence["line"] == 2
 
 
@@ -402,14 +402,14 @@ def test_install_and_import_time_are_separate_rules() -> None:
 # import_time_code
 
 
-def import_time_names(source: str) -> list[str]:
-    py_file = read(textwrap.dedent(source))
+def import_time_names(file_contents: str) -> list[str]:
+    py_file = read(textwrap.dedent(file_contents))
     assert py_file is not None
     return sorted(name or "" for name, _ in calls(py_file, import_time_only=True))
 
 
 def test_import_time_only_skips_functions_and_main_guard() -> None:
-    source = """
+    file_contents = """
         import os
         os.getcwd()
         def later():
@@ -421,7 +421,7 @@ def test_import_time_only_skips_functions_and_main_guard() -> None:
         if __name__ == "__main__":
             os.system("z")
         """
-    assert import_time_names(source) == ["os.getcwd", "os.getpid"]
+    assert import_time_names(file_contents) == ["os.getcwd", "os.getpid"]
 
 
 @pytest.mark.parametrize(
@@ -429,13 +429,13 @@ def test_import_time_only_skips_functions_and_main_guard() -> None:
     ["_run()", "threading.Thread(target=_run).start()"],
 )
 def test_import_time_only_follows_functions_run_on_import(start: str) -> None:
-    source = f"""
+    file_contents = f"""
         import os, threading
         def _run():
             os.system("x")
         {start}
         """
-    assert "os.system" in import_time_names(source)
+    assert "os.system" in import_time_names(file_contents)
 
 
 @pytest.mark.parametrize(

@@ -83,13 +83,13 @@ class PackageHistory:
 
 # The source files read out of one downloaded archive (an sdist or a wheel).
 @dataclass(frozen=True)
-class ArchiveContents:
+class DistributionContents:
     filename: str  # e.g. "pkg-1.0.tar.gz"
 
     # Path inside the archive -> the file's text, for the files rules read. An
     # sdist's top folder ("pkg-1.0/") is dropped, so its setup.py is just "setup.py".
     # Paths are as the archive gives them: a hostile one like "../../evil.py" is
-    # kept as-is (and never written anywhere). Built by archive.archive_contents.
+    # kept as-is (and never written anywhere). Built by distribution.distribution_contents.
     python_files: dict[str, str] = field(default_factory=dict)  # every .py
     pth_files: dict[str, str] = field(default_factory=dict)  # every .pth
 
@@ -98,7 +98,7 @@ class ArchiveContents:
 # rules/helpers/static_code_analysis.read for the code rules.
 @dataclass(frozen=True)
 class PyFile:
-    source: str
+    file_contents: str
     tree: ast.Module
     aliases: dict[str, str]  # local name -> full name: "b" -> "base64", "e" -> "exec"
     origins: dict[str, set[str]]  # variable -> decoder/network calls its value came from
@@ -113,8 +113,8 @@ class AnalysisContext:
     metadata: ReleaseMetadata
     package_history: PackageHistory
     # None when the release has no such file, or it was too big to download.
-    sdist: ArchiveContents | None = None
-    wheel: ArchiveContents | None = None
+    sdist: DistributionContents | None = None
+    wheel: DistributionContents | None = None
 
 
 # One thing a rule found wrong with a release. Stored in the findings table.

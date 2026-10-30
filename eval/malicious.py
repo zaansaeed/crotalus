@@ -24,7 +24,7 @@ The dataset (https://github.com/DataDog/malicious-software-packages-dataset):
   under a folder whose name varies. Most also hold "package_info-*.json": PyPI's
   JSON for the release, saved when it was found, which is what fetch_metadata
   would have returned.
-- Without package_info, the metadata comes from the archive's PKG-INFO or
+- Without package_info, the metadata comes from the distribution's PKG-INFO or
   METADATA instead, and has no file list: sdist_only, late_file_upload and
   new_package can't fire on those samples.
 - package_info may only list this one version, which makes every package look
@@ -33,7 +33,7 @@ The dataset (https://github.com/DataDog/malicious-software-packages-dataset):
   towards what its rules catch.
 
 Safety: these are real malware. Nothing is written to disk, extracted, installed or
-run: zips are decrypted and read in memory, exactly like archive.py reads PyPI's
+run: zips are decrypted and read in memory, exactly like distribution.py reads PyPI's
 files. Running it in a container (the compose service) keeps it off your machine
 entirely.
 """
@@ -54,7 +54,7 @@ from typing import Any
 
 import common
 
-from crotalus import archive, http_client, pypi, triage
+from crotalus import distribution, http_client, pypi, triage
 from crotalus.models import (
     AnalysisContext,
     PackageHistory,
@@ -134,15 +134,15 @@ def read_sample(sample: Sample, data: bytes) -> tuple[AnalysisContext, str, bool
     try:
         zf = zipfile.ZipFile(io.BytesIO(data))
         paths: list[str] = [info.filename for info in zf.infolist() if not info.is_dir()]
-        if len(paths) > archive.MAX_MEMBERS:
-            raise SampleError(f"more than {archive.MAX_MEMBERS} files")
+        if len(paths) > distribution.MAX_MEMBERS:
+            raise SampleError(f"more than {distribution.MAX_MEMBERS} files")
         if len(paths) == 1 and paths[0].endswith(".zip"):
             # A few samples are a zip inside the zip: read the inner one, also in memory.
-            if zf.getinfo(paths[0]).file_size > archive.MAX_DOWNLOAD_BYTES:
+            if zf.getinfo(paths[0]).file_size > distribution.MAX_DOWNLOAD_BYTES:
                 raise SampleError("inner zip too big")
             return read_sample(sample, zf.read(paths[0], pwd=PASSWORD))
 
-        archive_type, root = _find_archive_root(paths)
+        distribution_type, root = _find_distribution_root(paths)
         files: dict[str, str] = _read_files(zf, paths, root)
 
         package_info = next((p for p in paths if "/package_info-" in p), None)
@@ -151,26 +151,27 @@ def read_sample(sample: Sample, data: bytes) -> tuple[AnalysisContext, str, bool
             metadata: ReleaseMetadata = pypi.parse_release_json(data_json)
             history = PackageHistory(first_uploaded_at=pypi.first_upload_in(data_json))
         else:
-            metadata = _metadata_from_archive(zf, paths, root, archive_type)
+            metadata = _metadata_from_distribution(zf, paths, root, distribution_type)
             history = PackageHistory()  # unknown: new_package doesn't fire
     except (zipfile.BadZipFile, KeyError, TypeError, ValueError, AttributeError) as exc:
         raise SampleError(f"{sample.path}: {exc!r}") from exc
 
     # The original file's name isn't in the sample; this is only for the LLM prompt.
-    suffix = ".tar.gz" if archive_type == "sdist" else "-py3-none-any.whl"
-    contents = archive.archive_contents(f"{metadata.name}-{metadata.version}{suffix}", files)
+    suffix = ".tar.gz" if distribution_type == "sdist" else "-py3-none-any.whl"
+    filename = f"{metadata.name}-{metadata.version}{suffix}"
+    contents = distribution.distribution_contents(filename, files)
     context = AnalysisContext(
         release=Release(id=0, name=pypi.normalize_name(metadata.name), version=metadata.version),
         metadata=metadata,
         package_history=history,
-        sdist=contents if archive_type == "sdist" else None,
-        wheel=contents if archive_type == "wheel" else None,
+        sdist=contents if distribution_type == "sdist" else None,
+        wheel=contents if distribution_type == "wheel" else None,
     )
-    return context, archive_type, package_info is not None
+    return context, distribution_type, package_info is not None
 
 
-def _find_archive_root(paths: list[str]) -> tuple[str, str]:
-    """("sdist" or "wheel", the folder the archive's files are under, ending in "/").
+def _find_distribution_root(paths: list[str]) -> tuple[str, str]:
+    """("sdist" or "wheel", the folder the distribution's files are under, ending in "/").
 
     The folder above it varies between samples ("2023-03-20-pkg-v1.0/", "tmp/tmpab12/pkg/"),
     so it's found from what's inside: a wheel has a "<name>.dist-info/" folder at its
@@ -212,21 +213,21 @@ def _folder(parts: list[str]) -> str:
 
 
 def _read_files(zf: zipfile.ZipFile, paths: list[str], root: str) -> dict[str, str]:
-    """Path under `root` -> text, for the files rules read. The same limits as archive.py."""
+    """Path under `root` -> text, for the files rules read. The same limits as distribution.py."""
     files: dict[str, str] = {}
     total = 0
     for path in paths:
-        if not path.startswith(root) or not archive.wanted_by_rules(path):
+        if not path.startswith(root) or not distribution.wanted_by_rules(path):
             continue
-        if zf.getinfo(path).file_size > archive.MAX_FILE_BYTES:
+        if zf.getinfo(path).file_size > distribution.MAX_FILE_BYTES:
             continue
         with zf.open(path, pwd=PASSWORD) as handle:  # decrypted in memory
-            content: bytes = handle.read(archive.MAX_FILE_BYTES + 1)
-        if len(content) > archive.MAX_FILE_BYTES:
+            content: bytes = handle.read(distribution.MAX_FILE_BYTES + 1)
+        if len(content) > distribution.MAX_FILE_BYTES:
             continue
         total += len(content)
-        if total > archive.MAX_TOTAL_BYTES:
-            raise SampleError(f"more than {archive.MAX_TOTAL_BYTES} bytes of source")
+        if total > distribution.MAX_TOTAL_BYTES:
+            raise SampleError(f"more than {distribution.MAX_TOTAL_BYTES} bytes of source")
         files[_undouble(path.removeprefix(root))] = content.decode("utf-8", errors="replace")
     return files
 
@@ -245,14 +246,14 @@ def _json(zf: zipfile.ZipFile, path: str) -> Any:
     return json.loads(zf.read(path, pwd=PASSWORD))
 
 
-def _metadata_from_archive(
-    zf: zipfile.ZipFile, paths: list[str], root: str, archive_type: str
+def _metadata_from_distribution(
+    zf: zipfile.ZipFile, paths: list[str], root: str, distribution_type: str
 ) -> ReleaseMetadata:
-    """Metadata from the archive's own PKG-INFO (sdist) or METADATA (wheel).
+    """Metadata from the distribution's own PKG-INFO (sdist) or METADATA (wheel).
 
     The same fields PyPI's JSON is built from, minus the file list and upload times.
     """
-    if archive_type == "sdist":
+    if distribution_type == "sdist":
         path = root + "PKG-INFO"
     else:
         path = next(p for p in paths if p.startswith(root) and p.endswith(".dist-info/METADATA"))
@@ -286,8 +287,8 @@ def _metadata_from_archive(
 
 
 def evaluate(sample: Sample, use_llm: bool) -> common.Result:
-    context, archive_type, has_package_info = read_sample(sample, download(sample))
-    notes = archive_type + ("" if has_package_info else ", no package_info")
+    context, distribution_type, has_package_info = read_sample(sample, download(sample))
+    notes = distribution_type + ("" if has_package_info else ", no package_info")
     return common.analyze(context, f"{sample.kind}/{sample.path}", use_llm, notes)
 
 
@@ -302,7 +303,7 @@ def main() -> None:
     samples: list[Sample] = []
     for kind in KINDS if args.kind == "all" else (args.kind,):
         # Bigger ones aren't worth the download: the worker skips them too.
-        available = [s for s in list_samples(kind) if s.size <= archive.MAX_DOWNLOAD_BYTES]
+        available = [s for s in list_samples(kind) if s.size <= distribution.MAX_DOWNLOAD_BYTES]
         samples += rng.sample(available, min(args.limit, len(available)))
 
     results: list[common.Result] = []
@@ -310,7 +311,7 @@ def main() -> None:
     for i, sample in enumerate(samples, 1):
         try:
             result = evaluate(sample, args.triage)
-        except (SampleError, archive.ArchiveError, triage.BadAnswer) as exc:
+        except (SampleError, distribution.DistributionError, triage.BadAnswer) as exc:
             failed += 1
             print(f"[{i}/{len(samples)}] skipped {sample.path}: {exc}", file=sys.stderr)
             continue

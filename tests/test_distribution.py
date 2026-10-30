@@ -1,4 +1,4 @@
-"""Tests for crotalus.archive.
+"""Tests for crotalus.distribution.
 
 Hostile archives are built inside the tests, so no malicious file is ever stored
 in the repo, and nothing here writes to disk.
@@ -15,8 +15,13 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-from crotalus import archive
-from crotalus.archive import ArchiveError, choose_files_to_inspect, download_and_read, read_members
+from crotalus import distribution
+from crotalus.distribution import (
+    DistributionError,
+    choose_files_to_inspect,
+    download_and_read,
+    read_members,
+)
 from crotalus.models import ReleaseFile
 
 T0 = datetime(2026, 10, 17, tzinfo=UTC)
@@ -95,7 +100,7 @@ def test_choose_files_to_inspect(
 
 
 def test_too_big_files_are_skipped() -> None:
-    huge = release_file("pkg-1.0.tar.gz", size=archive.MAX_DOWNLOAD_BYTES + 1)
+    huge = release_file("pkg-1.0.tar.gz", size=distribution.MAX_DOWNLOAD_BYTES + 1)
     assert choose_files_to_inspect((huge, ANY)) == (None, ANY)
 
 
@@ -142,7 +147,7 @@ def test_non_utf8_is_kept_readable() -> None:
 
 
 def test_oversized_source_file_is_skipped() -> None:
-    data = make_zip({"pkg/big.py": b"#" * (archive.MAX_FILE_BYTES + 1), "pkg/ok.py": b"ok\n"})
+    data = make_zip({"pkg/big.py": b"#" * (distribution.MAX_FILE_BYTES + 1), "pkg/ok.py": b"ok\n"})
     assert read_members("pkg-1.0-py3-none-any.whl", data) == {"pkg/ok.py": "ok\n"}
 
 
@@ -177,24 +182,24 @@ def test_zip_symlinks_are_skipped() -> None:
 
 
 def test_too_many_entries(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(archive, "MAX_MEMBERS", 3)
+    monkeypatch.setattr(distribution, "MAX_MEMBERS", 3)
     data = make_zip({f"pkg/m{i}.py": b"x\n" for i in range(4)})
-    with pytest.raises(ArchiveError):
+    with pytest.raises(DistributionError):
         read_members("pkg-1.0-py3-none-any.whl", data)
 
 
 def test_archive_bomb(monkeypatch: pytest.MonkeyPatch) -> None:
     # 3 files of 1 MB of zeros: a few KB compressed, much more once read.
-    monkeypatch.setattr(archive, "MAX_TOTAL_BYTES", 2 * MB)
+    monkeypatch.setattr(distribution, "MAX_TOTAL_BYTES", 2 * MB)
     data = make_zip({f"pkg/zeros{i}.py": b"\0" * MB for i in range(3)})
     assert len(data) < 50_000
-    with pytest.raises(ArchiveError):
+    with pytest.raises(DistributionError):
         read_members("pkg-1.0-py3-none-any.whl", data)
 
 
 @pytest.mark.parametrize("filename", ["pkg-1.0.tar.gz", "pkg-1.0-py3-none-any.whl"])
 def test_corrupt_archive(filename: str) -> None:
-    with pytest.raises(ArchiveError):
+    with pytest.raises(DistributionError):
         read_members(filename, b"this is not an archive")
 
 

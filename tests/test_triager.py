@@ -24,7 +24,7 @@ FINDING = Finding(
     rule_id="install_time_code",
     severity="high",
     message="setup.py starts programs at install time",
-    evidence={"archive": "sdist", "file": "setup.py", "calls": []},
+    evidence={"distribution": "sdist", "file": "setup.py", "calls": []},
 )
 RESULT = TriageResult(
     verdict="benign",

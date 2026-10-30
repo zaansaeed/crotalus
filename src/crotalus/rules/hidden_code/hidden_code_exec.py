@@ -26,15 +26,15 @@ from crotalus.rules.helpers.static_code_analysis import (
 
 def check(context: AnalysisContext) -> list[Finding]:
     findings = []
-    for archive, contents in (("sdist", context.sdist), ("wheel", context.wheel)):
+    for distribution, contents in (("sdist", context.sdist), ("wheel", context.wheel)):
         if contents is None:
             continue
-        for path, source in contents.python_files.items():
+        for path, file_contents in contents.python_files.items():
             # Running code needs exec or eval, and even `e = exec` contains the word, so
             # files without either can be skipped without parsing (the slow part).
-            if "exec" not in source and "eval" not in source:
+            if "exec" not in file_contents and "eval" not in file_contents:
                 continue
-            py_file = read(source)
+            py_file = read(file_contents)
             if py_file is None:
                 continue
 
@@ -58,7 +58,7 @@ def check(context: AnalysisContext) -> list[Finding]:
                             f" in {path}"
                         ),
                         evidence={
-                            "archive": archive,
+                            "distribution": distribution,
                             "file": path,
                             "line": call_node.lineno,
                             "decoders": decoders,

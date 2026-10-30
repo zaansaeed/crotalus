@@ -11,7 +11,7 @@ those names against the groups below.
 
 The flow, for `import base64 as b; data = b.b64decode(x); exec(data)`:
 
-    read(source)                         → PyFile (None if it isn't valid Python 3):
+    read(file_contents)                         → PyFile (None if it isn't valid Python 3):
         .tree                            →   the parsed code
         .aliases                         →   {"b": "base64"}
         .origins                         →   {"data": {"base64.b64decode"}}
@@ -160,7 +160,7 @@ def _in_network_module(name: str) -> bool:
 # --- Reading code ------------------------------------------------------------------
 
 
-def read(source: str) -> PyFile | None:
+def read(file_contents: str) -> PyFile | None:
     """Parse a file and work out what its names mean.
 
     None if it isn't valid Python 3 (e.g. an old Python 2 setup.py): code that
@@ -170,14 +170,14 @@ def read(source: str) -> PyFile | None:
         with warnings.catch_warnings():
             # Package code is full of e.g. invalid escape sequences; not our problem.
             warnings.simplefilter("ignore", SyntaxWarning)
-            tree = ast.parse(source)
-    except (SyntaxError, ValueError, RecursionError):  # ValueError: null bytes in source
+            tree = ast.parse(file_contents)
+    except (SyntaxError, ValueError, RecursionError):  # ValueError: null bytes in the file
         return None
 
     # One pass, filling in both maps as names are defined. ast.walk visits the top of
     # the file first and a function's statements in order, so imports are normally
     # known by the time an assignment like `data = b.b64decode(x)` uses them.
-    py_file = PyFile(source=source, tree=tree, aliases={}, origins={})
+    py_file = PyFile(file_contents=file_contents, tree=tree, aliases={}, origins={})
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):  # import base64 as b
             for imported in node.names:
@@ -342,5 +342,5 @@ def origins(expr: ast.expr, py_file: PyFile) -> set[str]:
 
 def snippet(py_file: PyFile, node: ast.AST, limit: int = 200) -> str:
     """The source text of `node`, shortened for evidence."""
-    text = ast.get_source_segment(py_file.source, node) or ""
+    text = ast.get_source_segment(py_file.file_contents, node) or ""
     return text if len(text) <= limit else text[:limit] + "..."

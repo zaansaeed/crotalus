@@ -74,7 +74,7 @@ def check(context: AnalysisContext) -> list[Finding]:
                     + (f", calling {', '.join(sorted(dangerous_calls))}" if dangerous_calls else "")
                 ),
                 evidence={
-                    "archive": "wheel",
+                    "distribution": "wheel",
                     "file": path,
                     "lines": executed_lines,
                     "dangerous_calls": sorted(dangerous_calls),

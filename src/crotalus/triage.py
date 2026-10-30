@@ -28,7 +28,13 @@ import re
 import httpx
 
 from crotalus import http_client
-from crotalus.models import AnalysisContext, ArchiveContents, Finding, ReleaseMetadata, TriageResult
+from crotalus.models import (
+    AnalysisContext,
+    DistributionContents,
+    Finding,
+    ReleaseMetadata,
+    TriageResult,
+)
 
 # Bump when the prompt changes, so results from different prompts can be compared.
 PROMPT_VERSION = "v2"  # v2: findings are claims to check; malice needs a harmful line
@@ -162,7 +168,7 @@ def build_prompt(context: AnalysisContext, findings: list[Finding]) -> str:
     prompt_length = sum(len(section) for section in sections)
     excerpts = excerpts_of_flagged_files(context, findings)
     for excerpts_added, (heading, excerpt) in enumerate(excerpts):
-        # The path is in the untrusted block too: the archive names its files.
+        # The path is in the untrusted block too: the distribution names its files.
         excerpt_block = wrap_untrusted(f"file: {heading}\n{excerpt}")
         if prompt_length + len(excerpt_block) > MAX_PROMPT_CHARS:
             left_out = len(excerpts) - excerpts_added
@@ -181,45 +187,48 @@ def excerpts_of_flagged_files(
     Shows the lines around each flagged line, or the whole file (up to a limit) when
     the finding doesn't name lines, like a .pth file.
     """
-    flagged_lines_by_file: dict[tuple[str, str], set[int]] = {}  # (archive, path) -> lines
+    flagged_lines_by_file: dict[tuple[str, str], set[int]] = {}  # (distribution, path) -> lines
     for finding in findings:
-        archive, path = finding.evidence.get("archive"), finding.evidence.get("file")
-        if archive is None:
+        distribution, path = finding.evidence.get("distribution"), finding.evidence.get("file")
+        if distribution is None:
             continue  # not about code (e.g. typosquat) (not a code static analysis rule)
         if path is not None:  # a finding about one file
-            flagged_lines = flagged_lines_by_file.setdefault((archive, path), set())
+            flagged_lines = flagged_lines_by_file.setdefault((distribution, path), set())
             if "line" in finding.evidence:
                 flagged_lines.add(finding.evidence["line"])
         for call in finding.evidence.get("calls", []):
             # Findings about several files (import_time_code) name the file per call.
             call_path = call.get("file", path)
             if call_path is not None:
-                flagged_lines_by_file.setdefault((archive, call_path), set()).add(call["line"])
+                flagged_lines_by_file.setdefault((distribution, call_path), set()).add(call["line"])
 
     excerpts: list[tuple[str, str]] = []
     # Iterate over each file with flagged lines, then get its excerpt.
-    for (archive, path), flagged_lines in flagged_lines_by_file.items():
-        # The archive the finding points at: the sdist's or the wheel's contents.
-        contents: ArchiveContents | None = context.sdist if archive == "sdist" else context.wheel
+    for (distribution, path), flagged_lines in flagged_lines_by_file.items():
+        # The distribution the finding points at: the sdist's or the wheel's contents.
+        contents: DistributionContents | None = (
+            context.sdist if distribution == "sdist" else context.wheel
+        )
         if contents is None:
             continue
-        source = contents.python_files.get(path, contents.pth_files.get(path))  # .pth findings too
-        if source is None:
+        # .pth findings too
+        file_contents = contents.python_files.get(path, contents.pth_files.get(path))
+        if file_contents is None:
             continue
-        excerpt: str = numbered_lines_near_flagged(source, flagged_lines)
+        excerpt: str = numbered_lines_near_flagged(file_contents, flagged_lines)
         if len(excerpt) > MAX_FILE_CHARS:
             excerpt = excerpt[:MAX_FILE_CHARS] + "\n... (cut for length)"
-        excerpts.append((f"{archive}: {path}", excerpt))
+        excerpts.append((f"{distribution}: {path}", excerpt))
     return excerpts
 
 
-def numbered_lines_near_flagged(source: str, flagged_lines: set[int]) -> str:
+def numbered_lines_near_flagged(file_contents: str, flagged_lines: set[int]) -> str:
     """The lines within CONTEXT_LINES of a flagged line (all of them if none are), numbered.
 
     Gaps are shown as "...". Flagged lines are marked with ">" so the model can find them.
     """
-    source_lines = source.splitlines()
-    shown = set(range(1, len(source_lines) + 1))
+    file_lines = file_contents.splitlines()
+    shown = set(range(1, len(file_lines) + 1))
     # Keep only the lines within CONTEXT_LINES of a flagged one. A set, so overlapping
     # windows (flagged lines 50 and 60) show each line once; intersecting with every
     # line in the file drops window lines past its start or end. With nothing flagged
@@ -237,7 +246,7 @@ def numbered_lines_near_flagged(source: str, flagged_lines: set[int]) -> str:
         if out and number != previous + 1:
             out.append("  ...")
         marker = ">" if number in flagged_lines else " "
-        out.append(f"{marker}{number:>5} | {source_lines[number - 1]}")
+        out.append(f"{marker}{number:>5} | {file_lines[number - 1]}")
         previous = number
     return "\n".join(out)
 

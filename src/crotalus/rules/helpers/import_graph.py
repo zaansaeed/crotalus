@@ -127,16 +127,18 @@ NOT_PACKAGE_CODE_FILES = {"setup.py", "conftest.py", "__main__.py"}
 
 
 def installed_package_code(context: AnalysisContext) -> tuple[str, dict[str, str]] | None:
-    """("wheel" or "sdist", path -> source) of the package's own .py files.
+    """("wheel" or "sdist", path -> file contents) of the package's own .py files.
 
     From the wheel if there is one, since that's what gets installed; otherwise the
     sdist. Tests, docs, examples, templates, setup.py and __main__.py are left out.
     """
-    archive_name, contents = ("wheel", context.wheel) if context.wheel else ("sdist", context.sdist)
+    distribution, contents = ("wheel", context.wheel) if context.wheel else ("sdist", context.sdist)
     if contents is None:
         return None
-    return archive_name, {
-        path: source for path, source in contents.python_files.items() if _package_code(path)
+    return distribution, {
+        path: file_contents
+        for path, file_contents in contents.python_files.items()
+        if _package_code(path)
     }
 
 

@@ -79,37 +79,33 @@ def check(context: AnalysisContext) -> list[Finding]:
         sdist_files = context.sdist.python_files
         run_on_install = modules_run_on_install(sdist_files)
         findings += _check_files(
-            "install_time_code",
-            "sdist",
-            {path: source for path, source in sdist_files.items() if path in run_on_install},
+            "install_time_code", "sdist", {path: sdist_files[path] for path in run_on_install}
         )
     # Import time: the files the import graph reaches, in the wheel if there is one.
     # The package's other files only run when someone runs them.
     package_code = installed_package_code(context)
     if package_code is not None:
-        archive, files = package_code
+        distribution, files = package_code
         run_on_import = modules_run_on_import(files)
         findings += _check_files(
-            "import_time_code",
-            archive,
-            {path: source for path, source in files.items() if path in run_on_import},
+            "import_time_code", distribution, {path: files[path] for path in run_on_import}
         )
         findings += _check_files(
             "unimported_script_code",
-            archive,
-            {path: source for path, source in files.items() if path not in run_on_import},
+            distribution,
+            {path: files[path] for path in files.keys() - run_on_import},
         )
     return findings
 
 
-def _check_files(rule_id: str, archive: str, files: dict[str, str]) -> list[Finding]:
+def _check_files(rule_id: str, distribution: str, files: dict[str, str]) -> list[Finding]:
     """The rule's finding about the calls in `files` that start programs or connect to
     the network: [] if there are none.
     """
     # One file at a time (parse trees are many times the size of the source).
     calls_found: list[dict[str, Any]] = []
-    for path, source in sorted(files.items()):
-        py_file = read(source)
+    for path, file_contents in sorted(files.items()):
+        py_file = read(file_contents)
         if py_file is None:
             continue
         # setuptools also runs the methods of setup.py's custom commands: all its calls count.
@@ -155,7 +151,7 @@ def _check_files(rule_id: str, archive: str, files: dict[str, str]) -> list[Find
             severity=severity,
             message=f"{when} {' and '.join(does)} ({', '.join(flagged_files[:3])})",
             evidence={
-                "archive": archive,
+                "distribution": distribution,
                 "calls": calls_found[:10],  # the first few is enough to see what it does
                 "total_calls": len(calls_found),
             },

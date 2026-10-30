@@ -2,7 +2,7 @@
 
     metadata         PyPI's info for this version: summary, links, files
     package_history  when the package first appeared (cached in the packages table)
-    sdist, wheel     the source code of the two files inspected (see archive.py)
+    sdist, wheel     the source code of the two files inspected (see distribution.py)
 
 Used by the worker (before running the rules) and the triager (before asking the
 LLM). The triager downloads the code again rather than storing it: only flagged
@@ -13,11 +13,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from crotalus import archive, queries
+from crotalus import distribution, queries
 from crotalus.db import Connection
 from crotalus.models import (
     AnalysisContext,
-    ArchiveContents,
+    DistributionContents,
     PackageHistory,
     Release,
     ReleaseFile,
@@ -30,7 +30,7 @@ def build_analysis_context(conn: Connection, release: Release) -> AnalysisContex
     """Fetch the release's metadata, package history and code.
 
     Raises pypi.ReleaseNotFound if it's gone from PyPI, pypi.PyPIUnavailable if PyPI
-    can't be reached, and archive.ArchiveError if its files can't be read.
+    can't be reached, and distribution.DistributionError if its files can't be read.
     """
     # The release first: if it's gone from PyPI, don't bother with the package history.
     metadata: ReleaseMetadata = fetch_metadata(release.name, release.version)
@@ -39,9 +39,9 @@ def build_analysis_context(conn: Connection, release: Release) -> AnalysisContex
     # Each is None if the release has no such file, or it's too big.
     sdist_file: ReleaseFile | None
     wheel_file: ReleaseFile | None
-    sdist_file, wheel_file = archive.choose_files_to_inspect(metadata.files)
-    sdist: ArchiveContents | None = archive.download_and_read(sdist_file)
-    wheel: ArchiveContents | None = archive.download_and_read(wheel_file)
+    sdist_file, wheel_file = distribution.choose_files_to_inspect(metadata.files)
+    sdist: DistributionContents | None = distribution.download_and_read(sdist_file)
+    wheel: DistributionContents | None = distribution.download_and_read(wheel_file)
 
     return AnalysisContext(
         release=release,

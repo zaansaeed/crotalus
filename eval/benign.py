@@ -30,10 +30,10 @@ import sys
 
 import common
 
-from crotalus import archive, pypi, triage
+from crotalus import distribution, pypi, triage
 from crotalus.models import (
     AnalysisContext,
-    ArchiveContents,
+    DistributionContents,
     PackageHistory,
     Release,
     ReleaseFile,
@@ -55,9 +55,9 @@ def build_context(name: str) -> AnalysisContext:
     metadata: ReleaseMetadata = pypi.fetch_metadata(name, version)
     sdist_file: ReleaseFile | None
     wheel_file: ReleaseFile | None
-    sdist_file, wheel_file = archive.choose_files_to_inspect(metadata.files)
-    sdist: ArchiveContents | None = archive.download_and_read(sdist_file)
-    wheel: ArchiveContents | None = archive.download_and_read(wheel_file)
+    sdist_file, wheel_file = distribution.choose_files_to_inspect(metadata.files)
+    sdist: DistributionContents | None = distribution.download_and_read(sdist_file)
+    wheel: DistributionContents | None = distribution.download_and_read(wheel_file)
 
     return AnalysisContext(
         release=Release(id=0, name=pypi.normalize_name(name), version=version),
@@ -89,7 +89,7 @@ def main() -> None:
     for i, name in enumerate(names, 1):
         try:
             result = common.analyze(build_context(name), source, args.triage)
-        except (pypi.PyPIError, archive.ArchiveError, triage.BadAnswer, KeyError) as exc:
+        except (pypi.PyPIError, distribution.DistributionError, triage.BadAnswer, KeyError) as exc:
             failed += 1
             print(f"[{i}/{len(names)}] skipped {name}: {exc}", file=sys.stderr)
             continue

@@ -31,7 +31,7 @@ from packaging.tags import Tag
 from packaging.utils import InvalidWheelFilename, parse_wheel_filename
 
 from crotalus import pypi
-from crotalus.models import ArchiveContents, ReleaseFile
+from crotalus.models import DistributionContents, ReleaseFile
 
 MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024  # bigger files aren't downloaded at all
 MAX_MEMBERS = 20_000  # entries in one archive
@@ -39,7 +39,7 @@ MAX_FILE_BYTES = 2 * 1024 * 1024  # bigger source files are skipped
 MAX_TOTAL_BYTES = 100 * 1024 * 1024  # decompressed bytes read from one archive
 
 
-class ArchiveError(Exception):
+class DistributionError(Exception):
     """The archive is corrupt, or breaks one of the limits above."""
 
 
@@ -111,7 +111,7 @@ def _members(filename: str, data: bytes) -> Iterator[tuple[str, int, IO[bytes]]]
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             infos = zf.infolist()  # info for each file/folder in the zip
             if len(infos) > MAX_MEMBERS:
-                raise ArchiveError(f"{filename} has more than {MAX_MEMBERS} entries")
+                raise DistributionError(f"{filename} has more than {MAX_MEMBERS} entries")
             for info in infos:
                 mode = info.external_attr >> 16  # Unix permission bits, if any
                 if info.is_dir() or stat.S_ISLNK(mode):  # we only want real files
@@ -124,7 +124,7 @@ def _members(filename: str, data: bytes) -> Iterator[tuple[str, int, IO[bytes]]]
             for member in tf:
                 count += 1
                 if count > MAX_MEMBERS:
-                    raise ArchiveError(f"{filename} has more than {MAX_MEMBERS} entries")
+                    raise DistributionError(f"{filename} has more than {MAX_MEMBERS} entries")
                 if not member.isfile():  # skips links, devices, FIFOs, directories
                     continue
                 extracted = tf.extractfile(member)  # reads from memory, writes nothing
@@ -147,7 +147,7 @@ def _strip_top_folder(files: dict[str, str], all_paths: list[str]) -> dict[str, 
 def read_members(filename: str, data: bytes) -> dict[str, str]:
     """Path -> text for the .py and .pth files in an archive.
 
-    Raises ArchiveError if the archive is corrupt or too big once decompressed.
+    Raises DistributionError if the archive is corrupt or too big once decompressed.
     """
     files: dict[str, str] = {}
     all_paths: list[str] = []
@@ -164,21 +164,21 @@ def read_members(filename: str, data: bytes) -> dict[str, str]:
                 continue
             total += len(content)
             if total > MAX_TOTAL_BYTES:
-                raise ArchiveError(
+                raise DistributionError(
                     f"{filename} has more than {MAX_TOTAL_BYTES} bytes of source"
                 )
             # Python source is UTF-8. Anything else is kept readable rather than dropped,
             # since odd encodings are a way to hide code.
             files[path] = content.decode("utf-8", errors="replace")
     except (tarfile.TarError, zipfile.BadZipFile, zlib.error, EOFError, OSError) as exc:
-        raise ArchiveError(f"could not read {filename}: {exc!r}") from exc
+        raise DistributionError(f"could not read {filename}: {exc!r}") from exc
     if filename.endswith(".whl"):
         return files
     # sdist: drop its top folder.
     return _strip_top_folder(files, all_paths)
 
 
-def download_and_read(file: ReleaseFile | None) -> ArchiveContents | None:
+def download_and_read(file: ReleaseFile | None) -> DistributionContents | None:
     """Download `file` and read its source files. None if there's no file.
 
     Called by analysis_context.build_analysis_context, for the sdist and the wheel.
@@ -186,12 +186,12 @@ def download_and_read(file: ReleaseFile | None) -> ArchiveContents | None:
     if file is None:
         return None
     data: bytes = pypi.download(file, MAX_DOWNLOAD_BYTES)
-    return archive_contents(file.filename, read_members(file.filename, data))
+    return distribution_contents(file.filename, read_members(file.filename, data))
 
 
-def archive_contents(filename: str, files: dict[str, str]) -> ArchiveContents:
+def distribution_contents(filename: str, files: dict[str, str]) -> DistributionContents:
     """The files read from an archive, sorted into .py and .pth files."""
-    return ArchiveContents(
+    return DistributionContents(
         filename=filename,
         python_files={p: text for p, text in files.items() if not p.lower().endswith(".pth")},
         pth_files={p: text for p, text in files.items() if p.lower().endswith(".pth")},
