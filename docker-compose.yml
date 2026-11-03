@@ -88,7 +88,8 @@ services: # each service is a container this project needs
     build: ./api
     image: crotalus-api
     environment:
-      DATABASE_URL: postgresql://crotalus:crotalus@db:5432/crotalus
+      # The read-only role from migrations/010_api_role.sql, not crotalus.
+      DATABASE_URL: postgresql://crotalus_api:crotalus_api@db:5432/crotalus
     ports:
       - "127.0.0.1:8080:8080" # localhost:8080 on this machine reaches the API
     restart: on-failure

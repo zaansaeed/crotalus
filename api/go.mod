@@ -2,7 +2,10 @@ module github.com/zaansaeed/crotalus/api
 
 go 1.27.3
 
-require github.com/jackc/pgx/v5 v5.11.0 // indirect, postgres driver for go (psycopg python equiv)
+require (
+	github.com/jackc/pgx/v5 v5.11.0 // indirect, postgres driver for go (psycopg python equiv)
+	golang.org/x/time v0.16.0
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
