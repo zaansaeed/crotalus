@@ -1,0 +1,15 @@
+# Caddy: the public front door for the Go API (docker-compose.yml's caddy service).
+#
+# For the site below, Caddy automatically:
+# - gets an HTTPS certificate from Let's Encrypt (and renews it), proving it controls
+#   the domain over port 80, so the domain must already point at this server
+# - redirects http:// to https://
+# - forwards each request to the API container, adding X-Forwarded-For (the
+#   client's address, which the API's rate limiter reads)
+#
+# API_DOMAIN comes from .env (e.g. api.crotalus.xyz). Unset, it's "localhost":
+# Caddy then uses its own local certificate instead of Let's Encrypt.
+
+{$API_DOMAIN:localhost} {
+	reverse_proxy api:8080
+}

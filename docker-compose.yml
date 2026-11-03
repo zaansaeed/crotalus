@@ -97,5 +97,24 @@ services: # each service is a container this project needs
       migrate:
         condition: service_completed_successfully # reads tables the migrations create
 
+  # The public front door: HTTPS for API_DOMAIN (.env), forwarded to the api service
+  # over Docker's network. 
+  caddy:
+    image: caddy:2 # pinned major version
+    ports:
+      - "80:80"  # server's port 80  -> Caddy container's port 80
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    depends_on:
+      - api
+
 volumes: # declaration of the volume used above, so data is not lost with the container
   pgdata:
+  caddy_data:
+  caddy_config:
