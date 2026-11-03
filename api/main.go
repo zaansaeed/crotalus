@@ -42,9 +42,12 @@ func main() {
 	// http.ListenAndServe has no timeouts: a client that sends its request (or reads
 	// the response) one byte at a time keeps a connection open for as long as it
 	// likes, and enough of them use up the server (a "Slowloris" attack).
+	//
+	// The CORS header goes on outside the rate limiter, so a page that gets a 429 can
+	// still read it (rather than seeing a CORS error).
 	server := &http.Server{
 		Addr:              ":8080",
-		Handler:           limiter.middleware(mux),
+		Handler:           allowCrossOrigin(limiter.middleware(mux)),
 		ReadHeaderTimeout: 5 * time.Second,  // to send the request's headers
 		ReadTimeout:       10 * time.Second, // to send the whole request
 		WriteTimeout:      10 * time.Second, // to handle it and send the response

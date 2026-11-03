@@ -320,7 +320,7 @@ cancels any slow API query. A partial index on the newest flagged releases
 
 | Endpoint | Returns |
 |---|---|
-| `GET /health` | 200 if the database answers, 503 if not |
+| `GET /health` | 'ok' if the database answers, 503 if not |
 | `GET /flagged?limit=50` | latest `suspicious` / `likely_malicious` releases (limit 1-500) |
 | `GET /releases/{name}/{version}` | verdicts, findings with evidence, latest triage; 404 if not analyzed |
 
@@ -340,17 +340,6 @@ curl https://api.crotalus.xyz/releases/examplepkg/1.0.0
 
 **Rate limit:** 20 requests at once, then 5 a second, per IP; over that, `429` with
 `Retry-After`.
-
-**How a request gets in:**
-
-```mermaid
-flowchart LR
-    client([client]) -- "HTTPS :443" --> sg{{AWS security group<br/>80, 443 open; 22 one IP}}
-    sg --> caddy[Caddy<br/>Let's Encrypt TLS]
-    caddy -- "http, Docker network" --> limiter[Go: rate limiter<br/>per-IP token bucket]
-    limiter --> mux[Go: router + handlers]
-    mux -- "crotalus_api role" --> db[(Postgres)]
-```
 
 Each layer limits what the next one can be asked to do:
 
@@ -420,14 +409,6 @@ curl localhost:8080/flagged
 
 The database starts empty: crotalus analyzes releases published from then on. Without
 `API_DOMAIN` in `.env`, Caddy serves `https://localhost` with its own local certificate.
-
-**Deployment.** The live instance runs the same stack on AWS EC2 (Ubuntu 24.04,
-`t3.small`, 2 GB swap) with an Elastic IP; `api.crotalus.xyz` is a DNS A record
-pointing at it, and `API_DOMAIN=api.crotalus.xyz` in its `.env` tells Caddy which
-certificate to get. The security group allows 80 and 443 from anywhere and SSH from
-one IP; Postgres is reached through an SSH tunnel
-(`ssh -N -L 9090:127.0.0.1:8080 ubuntu@<host>` does the same for the API). Secrets live
-only in `.env` on the instance, never in the repo or the images.
 
 ---
 
