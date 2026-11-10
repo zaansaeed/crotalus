@@ -60,6 +60,11 @@ services: # each service is a container this project needs
   worker:
     <<: *crotalus
     command: python -m crotalus.worker
+    deploy:
+      resources:
+        limits:
+          memory: 900M 
+    memswap_limit: 900M # no swap for the worker: it's killed at 900 MiB instead
 
   triager:
     <<: *crotalus
